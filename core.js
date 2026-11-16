@@ -165,3 +165,31 @@ export function ownerStats(tasks) {
   }
   return Object.values(by).sort((a, b) => b.open - a.open || a.owner.localeCompare(b.owner));
 }
+
+// ---- Export CSV (onglet Tâches, filtres appliqués) ----
+// Séparateur « ; » pour Excel FR. Les sauts de ligne sont aplatis : une tâche = une ligne.
+export function csvEscape(v) {
+  const s = String(v ?? '').replace(/\r?\n/g, ' ');
+  return /[";]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+
+const CSV_COLUMNS = [
+  ['Tâche', (t) => t.title],
+  ['Statut', (t) => t.status],
+  ['Pilote', (t) => t.owner],
+  ['Priorité', (t) => t.priority],
+  ['Type', (t) => t.kind],
+  ['Échéance', (t) => formatDue(t.due)],
+  ['Réponse attendue', (t) => t.answerKind || ''],
+  ['Réponse de Ti Tar', (t) => t.answerText || ''],
+  ['Date de réponse', (t) => formatDue(t.answerDate)],
+  ['Temps estimé (min)', (t) => t.timeMin ?? ''],
+  ['Bloque la suite', (t) => (t.blocking ? 'oui' : 'non')],
+  ['Action attendue', (t) => t.expected || '']
+];
+
+export function toCsv(tasks) {
+  const lines = [CSV_COLUMNS.map(([label]) => csvEscape(label)).join(';')];
+  for (const t of tasks) lines.push(CSV_COLUMNS.map(([, get]) => csvEscape(get(t))).join(';'));
+  return lines.join('\r\n');
+}

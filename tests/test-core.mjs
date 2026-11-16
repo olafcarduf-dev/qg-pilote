@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { QUEUED, sortTasks, filterTasks, groupByPriority, summary, nextAction, formatDue, isLate, isSafeUrl, isClosed, requestFreshSnapshot, AI_PILOTS, myDecisions, awaitingGreenLight, onYou, totalMinutes, actionsFor, closedTasks, postponedDecisions, ownerStats } from '../core.js';
+import { QUEUED, sortTasks, filterTasks, groupByPriority, summary, nextAction, formatDue, isLate, isSafeUrl, isClosed, requestFreshSnapshot, AI_PILOTS, myDecisions, awaitingGreenLight, onYou, totalMinutes, actionsFor, closedTasks, postponedDecisions, ownerStats, csvEscape, toCsv } from '../core.js';
 
 let ok = 0;
 const fails = [];
@@ -270,6 +270,32 @@ await atest('ownerStats : charge ouverte par pilote, hors file et closes, triée
   assert.strictEqual(stats[1].owner, 'Ti Tar');
   assert.strictEqual(stats[1].minutes, 0);
   assert.deepEqual(ownerStats([]), []);
+});
+
+// ---- Export CSV ----
+await atest('csvEscape : guillemets doublés, points-virgules quotés, sauts de ligne aplatis', () => {
+  assert.strictEqual(csvEscape('simple'), 'simple');
+  assert.strictEqual(csvEscape('avec "guillemets"'), '"avec ""guillemets"""');
+  assert.strictEqual(csvEscape('a;b'), '"a;b"');
+  assert.strictEqual(csvEscape('ligne\nsautée'), 'ligne sautée');
+  assert.strictEqual(csvEscape(null), '');
+  assert.strictEqual(csvEscape(5), '5');
+});
+
+await atest('toCsv : en-tête + une ligne par tâche, dates en JJ/MM/AAAA, filtres appliqués par l’appelant', () => {
+  const csv = toCsv([
+    t({ title: 'Valider les règles', status: QUEUED, owner: 'Ti Tar', due: '2026-11-23', blocking: true, timeMin: 5, answerDate: '2026-11-20' }),
+    t({ title: 'Doc', expected: 'Relire;' })
+  ]);
+  const lines = csv.split('\r\n');
+  assert.strictEqual(lines.length, 3);
+  assert.ok(lines[0].startsWith('Tâche;Statut;Pilote;Priorité;Type;Échéance;'));
+  assert.ok(lines[1].startsWith('Valider les règles;En attente de validation;Ti Tar;'));
+  assert.ok(lines[1].includes(';23/11/2026;'));
+  assert.ok(lines[1].includes('20/11/2026'));
+  assert.ok(lines[1].includes('5;oui;'));
+  assert.ok(lines[2].endsWith('"Relire;"'), 'le point-virgule du contenu est quoté');
+  assert.strictEqual(toCsv([]), 'Tâche;Statut;Pilote;Priorité;Type;Échéance;Réponse attendue;Réponse de Ti Tar;Date de réponse;Temps estimé (min);Bloque la suite;Action attendue');
 });
 console.log(fails.length ? `\n${fails.length} ÉCHEC(S)` : `\n${ok} test(s) ok, 0 échec(s)`);
 process.exitCode = fails.length ? 1 : 0;

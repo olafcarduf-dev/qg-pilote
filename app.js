@@ -1,5 +1,5 @@
 // QG Pilote v2 — couche DOM + API GitHub. La logique métier vit dans core.js (testé sous Node).
-import { QUEUED, filterTasks, groupByPriority, summary, nextAction, formatDue, isLate, isSafeUrl, isClosed, sortTasks, requestFreshSnapshot, myDecisions, awaitingGreenLight, onYou, totalMinutes, closedTasks, postponedDecisions, ownerStats, actionsFor } from './core.js';
+import { QUEUED, filterTasks, groupByPriority, summary, nextAction, formatDue, isLate, isSafeUrl, isClosed, sortTasks, requestFreshSnapshot, myDecisions, awaitingGreenLight, onYou, totalMinutes, closedTasks, postponedDecisions, ownerStats, actionsFor, toCsv } from './core.js';
 
 const DATA_REPO = 'olafcarduf-dev/qg-pilote-data';
 const API = 'https://api.github.com';
@@ -426,6 +426,21 @@ $('#btn-refresh').addEventListener('click', () => refresh(true));
 $('#search').addEventListener('input', (e) => { state.q = e.target.value; renderTasks(); });
 $('#filter-status').addEventListener('change', (e) => { state.status = e.target.value; renderTasks(); });
 $('#filter-priority').addEventListener('change', (e) => { state.priority = e.target.value; renderTasks(); });
+
+// Export CSV des tâches filtrées : BOM UTF-8 pour Excel FR, une tâche = une ligne.
+$('#btn-export').addEventListener('click', () => {
+  const rows = filterTasks(tasks(), { q: state.q, status: state.status, priority: state.priority });
+  if (!rows.length) { showToast('Rien à exporter avec ces filtres.', true); return; }
+  const blob = new Blob(['\uFEFF' + toCsv(rows)], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `qg-taches-${(state.snapshot?.generated_at || '').slice(0, 10) || 'export'}.csv`;
+  document.body.append(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(a.href);
+  showToast(`${rows.length} tâche(s) exportée(s) en CSV.`);
+});
 
 $('#btn-save-token').addEventListener('click', () => {
   const v = $('#token-input').value.trim();
