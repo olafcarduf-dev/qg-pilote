@@ -119,6 +119,12 @@ button.btn-reject:disabled, button.btn-postpone:disabled, button.btn-undo:disabl
 .toolbar { display: flex; gap: 0.4rem; margin-bottom: 0.7rem; }
 .toolbar input { flex: 2; }
 .toolbar select { flex: 1; min-width: 0; }
+.toolbar button {
+  background: var(--panel); color: var(--muted);
+  border: 1px solid var(--line); border-radius: 8px;
+  padding: 0.55rem 0.7rem; font-size: 0.8rem; font-weight: 800; cursor: pointer;
+}
+.toolbar button:active { color: var(--accent); border-color: var(--accent); }
 
 input, select, textarea {
   background: var(--bg); color: var(--text);
