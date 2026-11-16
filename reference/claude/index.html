@@ -136,7 +136,7 @@ var PRIO=['P0','P1','P2','P3'];
 var DENIED={needs_reauth:1,server_not_connected:1,selection_required:1,server_not_found:1,not_in_manifest:1,blocked_by_policy:1,approval_required:1,consent_required:1,not_granted:1,capability_disabled:1,capability_removed:1,user_changed:1};
 var AMBIGUOUS={server_unavailable:1,upstream_error:1,cancelled:1};
 
-var mcp=null, tasks=[], more=false, loadedAt=null, state='loading', loadErr=null, loading=false, writing=false, opener=null;
+var mcp=null, tasks=[], more=false, loadedAt=null, state='loading', loadErr=null, loading=false, writing=false, opener=null, readOnly=false;
 var filters={q:'',statut:'',pilote:''};
 var $=function(id){return document.getElementById(id);};
 
@@ -189,6 +189,44 @@ function explain(e){
   return 'L\'appel à Notion a échoué ('+(c||'erreur inconnue')+'). Réessaie avec Actualiser.';
 }
 
+// ---- Mode lecture (hors session Claude) : snapshot du dépôt data, token du site principal ----
+// Cette page vit sous la même origine que le site Vibe (olafcarduf-dev.github.io), donc le
+// token GitHub saisi dans les Réglages du site principal (clé « qg2-token ») est déjà là.
+var SNAP_API='https://api.github.com/repos/olafcarduf-dev/qg-pilote-data/contents/snapshot.json';
+var PRIO_MAP={Haute:'P0',Normale:'P1',Basse:'P2'};
+function snapTask(s){
+  return { url:safeUrl(s.source), titre:String(s.title||'(sans titre)'), statut:String(s.status||''), pilote:String(s.owner||'Non attribué'),
+    auteur:'', priorite:PRIO_MAP[s.priority]||'', type:String(s.kind||''), date:'', source:safeUrl(s.source), valide:false,
+    suite:String(s.note||''), interv:String(s.qgAction||''), temps:Number(s.timeMin)>0?Number(s.timeMin):0,
+    bloque:!!s.blocking, action:String(s.expected||''), rep:String(s.answerKind||''), repTexte:String(s.answerText||''),
+    repDate:String(s.answerDate||'').slice(0,10), reportee:!!s.postponed };
+}
+async function loadSnapshot(){
+  if(loading) return;
+  loading=true; $('refresh').disabled=true; $('sync').textContent='Lecture du snapshot…';
+  try{
+    var tok='';
+    try{ tok=localStorage.getItem('qg2-token')||''; }catch(e){}
+    if(!tok) throw {code:'snap_no_token', message:''};
+    var res=await fetch(SNAP_API,{headers:{Authorization:'Bearer '+tok,Accept:'application/vnd.github.raw'},cache:'no-store'});
+    if(res.status===401||res.status===403) throw {code:'snap_bad_token', message:''};
+    if(!res.ok) throw {code:'snap_http', message:'HTTP '+res.status};
+    var snap=await res.json();
+    if(!snap||!Array.isArray(snap.tasks)) throw {code:'snap_bad_shape', message:''};
+    tasks=snap.tasks.filter(function(s){return !s.archived;}).map(snapTask);
+    more=false; loadedAt=snap.generated_at?new Date(snap.generated_at):new Date(); state='ok'; loadErr=null;
+  }catch(e){
+    loadErr=e||{}; tasks=[]; state='error';
+  }finally{ loading=false; $('refresh').disabled=false; render(); }
+}
+function explainSnap(e){
+  var c=e&&e.code;
+  if(c==='snap_no_token') return 'Mode lecture : ajoute ton token GitHub dans les Réglages du site principal (même navigateur), puis appuie sur Actualiser.';
+  if(c==='snap_bad_token') return 'Mode lecture : le token GitHub enregistré est refusé. Re-saisis-le dans les Réglages du site principal, puis Actualiser.';
+  if(c==='snap_bad_shape') return 'Mode lecture : le snapshot du dépôt data est illisible.';
+  return 'Mode lecture : impossible de récupérer le snapshot ('+(c||'erreur')+').';
+}
+
 async function query(){
   var input={data:{mode:'view',view_url:VIEW,page_size:100}};
   try{ return payloadOf(await mcp.callTool(SERVER,Q_TOOL,input,{cache:false})); }
@@ -198,7 +236,8 @@ async function query(){
   }
 }
 async function load(){
-  if(!mcp||loading) return;
+  if(loading) return;
+  if(!mcp){ loadSnapshot(); return; }
   loading=true; $('refresh').disabled=true; $('sync').textContent='Lecture de Notion…';
   try{
     var p=await query();
@@ -226,10 +265,13 @@ function fill(box,list,empty){
 }
 function render(){
   var a=$('alert'); clear(a);
-  if(state==='error'||(loadErr&&state==='ok')){
-    a.appendChild(h('p',{class:'note err'}, h('strong',{text:state==='ok'?'Liste non actualisée. ':'Lecture impossible. '}), explain(loadErr)));
+  if(readOnly&&state==='ok'){
+    a.appendChild(h('p',{class:'note'}, h('strong',{text:'Mode lecture. '}), h('span',{text:'Données du snapshot du site principal ; les formulaires d\u2019écriture sont désactivés ici. Ouvre cette page dans Claude (connecteur Notion actif) pour écrire, ou '}), h('a',{href:'https://olafcarduf-dev.github.io/qg-pilote/',text:'gère tout depuis le site principal'}), h('span',{text:'.'})));
   }
-  $('sync').textContent = state==='ok' ? 'Lu dans Notion le '+new Intl.DateTimeFormat('fr-FR',{timeZone:'Europe/Paris',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}).format(loadedAt) : (state==='error'?'Non connecté':'Connexion à Notion…');
+  if(state==='error'||(loadErr&&state==='ok')){
+    a.appendChild(h('p',{class:'note err'}, h('strong',{text:state==='ok'?'Liste non actualisée. ':'Lecture impossible. '}), readOnly&&!DENIED[loadErr&&loadErr.code]?explainSnap(loadErr):explain(loadErr)));
+  }
+  $('sync').textContent = state==='ok' ? (readOnly?'Snapshot du '+new Intl.DateTimeFormat('fr-FR',{timeZone:'Europe/Paris',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}).format(loadedAt):'Lu dans Notion le '+new Intl.DateTimeFormat('fr-FR',{timeZone:'Europe/Paris',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}).format(loadedAt)) : (state==='error'?'Non connecté':'Connexion à Notion…');
   var pend=tasks.filter(function(t){return t.statut===PENDING&&!isMine(t)&&!t.reportee;});
   var q=sorted(pend.filter(function(t){return !isAuth(t);})), au=sorted(pend.filter(isAuth));
   var pr=function(t){var i=PRIO.indexOf(t.priorite); return i<0?9:i;};
@@ -298,7 +340,7 @@ function detail(t,message){
   var links=h('div',{class:'row'}, h('a',{href:t.url,target:'_blank',rel:'noopener noreferrer',text:'Ouvrir la fiche dans Notion'}));
   if(t.source) links.appendChild(h('a',{href:t.source,target:'_blank',rel:'noopener noreferrer',text:'Source : '+t.source.replace(/^https:\/\//,'').slice(0,48)}));
   s.appendChild(links);
-  var k=kindOf(t); if(k&&(!message||message.err)) form(t,k);
+  var k=mcp?kindOf(t):''; if(k&&(!message||message.err)) form(t,k);
   s.appendChild(h('button',{type:'button',onclick:closeSheet,text:'Fermer'}));
 }
 function form(t,k){
@@ -358,7 +400,7 @@ document.addEventListener('visibilitychange',function(){ if(!document.hidden&&mc
 
 (async function start(){
   try{ mcp = window.claude && typeof window.claude.use==='function' ? await window.claude.use('mcp') : null; }catch(e){ mcp=null; }
-  if(!mcp){ state='error'; loadErr={code:'no_mcp'}; render(); return; }
+  if(!mcp){ readOnly=true; loadSnapshot(); return; }
   load();
 })();
 })();

@@ -5,6 +5,8 @@
 export const QUEUED = 'En attente de validation';
 
 export const isClosed = (task) => ['Terminé', 'Validé', 'Rejeté'].includes(task.status);
+// Supprimée côté site = case « Archivée QG » cochée : récupérable, jamais détruite.
+export const isArchived = (t) => t?.archived === true;
 
 const PRIO_RANK = { Haute: 0, Normale: 1, Basse: 2 };
 const CLOSED_RANK = { 'Terminé': 0, 'Validé': 1, 'Rejeté': 2 };
@@ -32,6 +34,7 @@ export function isQueued(t) {
 export function filterTasks(tasks, f = {}) {
   const q = (f.q || '').trim().toLowerCase();
   return sortTasks(tasks.filter((t) => {
+    if (isArchived(t)) return false;
     if (f.status && t.status !== f.status) return false;
     if (f.owner && t.owner !== f.owner) return false;
     if (f.priority && t.priority !== f.priority) return false;
@@ -43,7 +46,7 @@ export function filterTasks(tasks, f = {}) {
 export function groupByPriority(tasks) {
   const groups = { Haute: [], Normale: [], Basse: [] };
   for (const t of tasks) {
-    if (isClosed(t)) continue;
+    if (isClosed(t) || isArchived(t)) continue;
     (groups[t.priority] ?? (groups[t.priority] = [])).push(t);
   }
   for (const k of Object.keys(groups)) groups[k] = sortTasks(groups[k]);
@@ -52,7 +55,10 @@ export function groupByPriority(tasks) {
 
 export function summary(tasks) {
   const counts = {};
-  for (const t of tasks) counts[t.status] = (counts[t.status] || 0) + 1;
+  for (const t of tasks) {
+    if (isArchived(t)) continue;
+    counts[t.status] = (counts[t.status] || 0) + 1;
+  }
   return {
     total: tasks.length,
     queued: counts[QUEUED] || 0,
@@ -66,7 +72,7 @@ export function summary(tasks) {
 }
 
 export function nextAction(tasks) {
-  return sortTasks(tasks.filter((t) => isQueued(t) && !t.postponed))[0] ?? null;
+  return sortTasks(tasks.filter((t) => isQueued(t) && !t.postponed && !isArchived(t)))[0] ?? null;
 }
 
 export function formatDue(due) {
@@ -110,23 +116,23 @@ export const AI_PILOTS = ['Vibe', 'ChatGPT', 'Claude', 'Python'];
 // Décisions qui attendent Ti Tar (en file, pas pilotées par une IA). Les reportées
 // sont exclues : elles s'affichent dans la section « Reportées » de l'onglet File.
 export function myDecisions(tasks) {
-  return tasks.filter((t) => t.status === QUEUED && !AI_PILOTS.includes(t.owner) && !t.postponed);
+  return tasks.filter((t) => t.status === QUEUED && !AI_PILOTS.includes(t.owner) && !t.postponed && !isArchived(t));
 }
 
 // Tâches qu'une IA peut faire mais qui attendent le feu vert de Ti Tar.
 export function awaitingGreenLight(tasks) {
-  return tasks.filter((t) => t.status === QUEUED && AI_PILOTS.includes(t.owner) && !t.postponed);
+  return tasks.filter((t) => t.status === QUEUED && AI_PILOTS.includes(t.owner) && !t.postponed && !isArchived(t));
 }
 
 // Décisions mises de côté par « Reporter » : toujours en file, case « Reportée QG » cochée.
 export function postponedDecisions(tasks) {
-  return sortTasks(tasks.filter((t) => t.status === QUEUED && t.postponed));
+  return sortTasks(tasks.filter((t) => t.status === QUEUED && t.postponed && !isArchived(t)));
 }
 
 // Tâches que Ti Tar seul peut faire : pilotées par lui ou « bloque la suite », hors file, non closes.
 export function onYou(tasks) {
   return sortTasks(tasks.filter((t) =>
-    t.status !== QUEUED && !isClosed(t) && (t.owner === 'Ti Tar' || t.blocking === true)
+    t.status !== QUEUED && !isClosed(t) && !isArchived(t) && (t.owner === 'Ti Tar' || t.blocking === true)
   ));
 }
 
@@ -136,16 +142,20 @@ export const totalMinutes = (tasks) => tasks.reduce((sum, t) => sum + (typeof t.
 // La file décide (Valider / Ne pas valider / Reporter), les reportées se remettent en file,
 // les closes s'annulent, le reste se termine.
 export function actionsFor(t) {
-  if (t.status === QUEUED) {
-    return { validate: true, reject: true, postpone: true, unpostpone: !!t.postponed, finish: false, undo: false };
+  if (isArchived(t)) {
+    return { validate: false, reject: false, postpone: false, unpostpone: false, finish: false, undo: false, edit: true, archive: false, restore: true };
   }
-  if (isClosed(t)) return { validate: false, reject: false, postpone: false, unpostpone: false, finish: false, undo: true };
-  return { validate: false, reject: false, postpone: false, unpostpone: false, finish: true, undo: false };
+  if (t.status === QUEUED) {
+    return { validate: true, reject: true, postpone: true, unpostpone: !!t.postponed, finish: false, undo: false, edit: true, archive: true, restore: false };
+  }
+  if (isClosed(t)) return { validate: false, reject: false, postpone: false, unpostpone: false, finish: false, undo: true, edit: true, archive: true, restore: false };
+  return { validate: false, reject: false, postpone: false, unpostpone: false, finish: true, undo: false, edit: true, archive: true, restore: false };
 }
 
-// Tâches closes, groupables : Terminé d'abord, puis Validé, puis Rejeté.
+// Tâches closes, groupables : Terminé d'abord, puis Validé, puis Rejeté. Les archivées vont dans la
+// section « Supprimées », elles ne polluent pas cette liste.
 export function closedTasks(tasks) {
-  return [...tasks.filter(isClosed)].sort((a, b) =>
+  return [...tasks.filter((t) => isClosed(t) && !isArchived(t))].sort((a, b) =>
     (CLOSED_RANK[a.status] - CLOSED_RANK[b.status]) ||
     ((PRIO_RANK[a.priority] ?? 1) - (PRIO_RANK[b.priority] ?? 1)) ||
     String(b.due ?? '').localeCompare(String(a.due ?? '')) ||
@@ -153,11 +163,16 @@ export function closedTasks(tasks) {
   );
 }
 
+// Section « Supprimées » (onglet Terminées) : archivées, récupérables via « Restaurer ».
+export function archivedTasks(tasks) {
+  return sortTasks(tasks.filter(isArchived));
+}
+
 // Charge ouverte par pilote : ouvertes (hors file et closes), dont décisions en file et Haute priorité.
 export function ownerStats(tasks) {
   const by = {};
   for (const t of tasks) {
-    if (t.status === QUEUED || isClosed(t)) continue;
+    if (isArchived(t) || t.status === QUEUED || isClosed(t)) continue;
     const o = by[t.owner] ?? (by[t.owner] = { owner: t.owner, open: 0, high: 0, minutes: 0 });
     o.open++;
     if (t.priority === 'Haute') o.high++;

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { QUEUED, sortTasks, filterTasks, groupByPriority, summary, nextAction, formatDue, isLate, isSafeUrl, isClosed, requestFreshSnapshot, AI_PILOTS, myDecisions, awaitingGreenLight, onYou, totalMinutes, actionsFor, closedTasks, postponedDecisions, ownerStats, csvEscape, toCsv } from '../core.js';
+import { QUEUED, sortTasks, filterTasks, groupByPriority, summary, nextAction, formatDue, isLate, isSafeUrl, isClosed, isArchived, archivedTasks, requestFreshSnapshot, AI_PILOTS, myDecisions, awaitingGreenLight, onYou, totalMinutes, actionsFor, closedTasks, postponedDecisions, ownerStats, csvEscape, toCsv } from '../core.js';
 
 let ok = 0;
 const fails = [];
@@ -24,7 +24,8 @@ const t = (o) => ({
   answerDate: o.answerDate ?? null,
   timeMin: o.timeMin ?? null,
   blocking: o.blocking ?? false,
-  postponed: o.postponed ?? false
+  postponed: o.postponed ?? false,
+  archived: o.archived ?? false
 });
 
 await atest('tri : la file passe avant tout, puis priorité, puis échéance', async () => {
@@ -231,14 +232,63 @@ await atest('totalMinutes : ignore les valeurs non numériques et les absentes',
 // ---- Boutons selon le statut ----
 await atest('actionsFor : la file décide, les closes s\u2019annulent, le reste se termine', () => {
   const queued = actionsFor(t({ status: QUEUED }));
-  assert.deepEqual(queued, { validate: true, reject: true, postpone: true, unpostpone: false, finish: false, undo: false });
+  assert.deepEqual(queued, { validate: true, reject: true, postpone: true, unpostpone: false, finish: false, undo: false, edit: true, archive: true, restore: false });
   assert.strictEqual(actionsFor(t({ status: QUEUED, postponed: true })).unpostpone, true, 'une décision reportée se remet en file');
   for (const status of ['Terminé', 'Validé', 'Rejeté']) {
-    assert.deepEqual(actionsFor(t({ status })), { validate: false, reject: false, postpone: false, unpostpone: false, finish: false, undo: true }, `close ${status}`);
+    assert.deepEqual(actionsFor(t({ status })), { validate: false, reject: false, postpone: false, unpostpone: false, finish: false, undo: true, edit: true, archive: true, restore: false }, `close ${status}`);
   }
   for (const status of ['À traiter', 'En cours', 'Bloqué']) {
-    assert.deepEqual(actionsFor(t({ status })), { validate: false, reject: false, postpone: false, unpostpone: false, finish: true, undo: false }, `ouverte ${status}`);
+    assert.deepEqual(actionsFor(t({ status })), { validate: false, reject: false, postpone: false, unpostpone: false, finish: true, undo: false, edit: true, archive: true, restore: false }, `ouverte ${status}`);
   }
+});
+
+await atest('isArchived : détection de la suppression (case « Archivée QG »)', () => {
+  assert.ok(isArchived(t({ archived: true })));
+  assert.ok(!isArchived(t({})));
+  assert.ok(!isArchived(t({ archived: 'true' })), 'seul le booléen vrai archive (le snapshot mappe la case cochée en true)');
+  assert.ok(!isArchived(null));
+});
+
+await atest('archivées : absentes de toutes les vues actives', () => {
+  const tasks = [
+    t({ id: 'a1', title: 'En cours gardée', status: 'En cours', priority: 'Haute' }),
+    t({ id: 'a2', title: 'Archivée en cours', status: 'En cours', archived: true }),
+    t({ id: 'a3', title: 'Archivée en file', status: QUEUED, archived: true, priority: 'Haute' }),
+    t({ id: 'a4', title: 'File gardée', status: QUEUED }),
+    t({ id: 'a5', title: 'Terminée archivée', status: 'Terminé', archived: true })
+  ];
+  assert.ok(!filterTasks(tasks, {}).some(isArchived), 'aucune archivée dans l’onglet Tâches, filtres ou non');
+  assert.ok(!groupByPriority(tasks).Haute.some(isArchived), 'aucune archivée dans les groupes de priorité');
+  assert.ok(!nextAction(tasks) || nextAction(tasks).id !== 'a3', 'l’archivée en file P0 ne devient pas prochaine action');
+  assert.ok(!myDecisions([...tasks, t({ id: 'a6', status: QUEUED, owner: 'Ti Tar', archived: true })]).some(isArchived));
+  assert.ok(!awaitingGreenLight(tasks).some(isArchived));
+  assert.ok(!postponedDecisions([...tasks, t({ id: 'a7', status: QUEUED, postponed: true, archived: true })]).some(isArchived));
+  assert.ok(!onYou([...tasks, t({ id: 'a8', owner: 'Ti Tar', archived: true })]).some(isArchived));
+  assert.ok(!closedTasks(tasks).some(isArchived), 'une close archivée quitte la liste Terminées (elle est dans Supprimées)');
+  assert.ok(!ownerStats(tasks).length || !JSON.stringify(ownerStats(tasks)).includes('a2'), 'aucune archivée dans la charge par pilote');
+  const s = summary(tasks);
+  assert.strictEqual(s.inProgress, 1, 'le résumé ne compte que l’en cours non archivée');
+  assert.strictEqual(s.total, 5, 'le total brut reste informatif');
+});
+
+await atest('archivedTasks : la section Supprimées liste les archivées, triées', () => {
+  const tasks = [
+    t({ id: 's2', title: 'Archivée Basse', archived: true, priority: 'Basse' }),
+    t({ id: 's1', title: 'Archivée Haute', archived: true, priority: 'Haute' }),
+    t({ id: 's3', title: 'Vivante', status: 'En cours' })
+  ];
+  const arch = archivedTasks(tasks);
+  assert.strictEqual(arch.length, 2);
+  assert.strictEqual(arch[0].id, 's1', 'la Haute passe avant la Basse');
+  assert.ok(arch.every(isArchived));
+  assert.strictEqual(archivedTasks([]).length, 0);
+});
+
+await atest('actionsFor : une archivée se restaure, ne se supprime pas deux fois', () => {
+  assert.deepEqual(actionsFor(t({ archived: true })), { validate: false, reject: false, postpone: false, unpostpone: false, finish: false, undo: false, edit: true, archive: false, restore: true });
+  const closed = actionsFor(t({ status: 'Terminé', archived: true }));
+  assert.strictEqual(closed.undo, false, 'une close archivée ne s’annule plus depuis Supprimées');
+  assert.strictEqual(closed.restore, true);
 });
 
 await atest('closedTasks : uniquement les closes, Terminé puis Validé puis Rejeté', () => {

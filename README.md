@@ -29,6 +29,7 @@ Vue mobile sur un registre de tâches Notion, avec actions en un clic qui écriv
 - **Erreur de clic ?** Onglet **Terminées** : toutes les fiches closes (Terminé, Validé, Rejeté) avec bouton **Annuler** qui rouvre la fiche (retour au statut précédent mémorisé dans la trace, sinon retour en file pour les décisions).
 - **Résumé** : barre de répartition par statut + charge ouverte par pilote. La recherche de l'onglet Tâches atteint aussi la suite et l'action attendue.
 - **Export CSV** : dans l'onglet Tâches, le bouton **CSV** télécharge la liste filtrée (recherche + statut + priorité) en CSV UTF-8, séparateur `;`, dates en JJ/MM/AAAA, prêt pour Excel FR.
+- **CRUD complet (v2.6)** : bouton **＋** dans la barre de l'onglet Tâches pour créer une fiche (titre, échéance, priorité, statut, pilote) ; **Modifier** sur chaque carte (titre, échéance, priorité, statut, vidage d'échéance inclus) ; **Supprimer** ne détruit rien : la case « Archivée QG » est cochée, la fiche disparaît des vues actives et rejoint la section **Supprimées (récupérables)** en tête de l'onglet Terminées, où **Restaurer** la remet en circulation. Workflows correspondants : `qg-add` et `qg-update` (dépôt data), log committé comme pour les autres écritures.
 - **Version Claude** : la variante « QG Pilote Direct » de Claude est conservée dans `reference/claude/` et servie en lecture seule sur `/reference/claude/` (elle ne fonctionne pleinement que dans les artifacts Claude : ses appels Notion passent par la session de l'utilisateur). Les idées utiles ont été reprises ici ; voir `reference/claude/INTEGRATION.md`.
 
 Chaque action refuse sans écriture si le statut Notion a changé entre-temps : rien n'est écrasé en aveugle.
@@ -60,6 +61,7 @@ Tout changement passe par une branche `vibe/*` → PR → CI verte → merge. Le
 
 ## Changelog
 
+- 16/11/2026 (v2.6) : CRUD complet — bouton **＋** (ajout via workflow `qg-add`), **Modifier** et **Supprimer** (= archivage réversible, case « Archivée QG ») sur chaque carte, **Restaurer** et section **Supprimées (récupérables)** dans l'onglet Terminées ; les archivées sortent de toutes les vues et du résumé ; version ChatGPT de la démo servie sur `/reference/chatgpt/` ; version Claude avec mode lecture de secours (snapshot) hors session Claude.
 - 16/11/2026 (v2.5) : bouton **CSV** dans l'onglet Tâches (export de la liste filtrée, BOM UTF-8 + `;` pour Excel FR, échappement RFC 4180), version Claude servie par Pages sur `/reference/claude/`.
 - 16/11/2026 (v2.4) : réponses structurées (texte → « Réponse Ti Tar QG », date → « Date renseignée QG », pré-remplies), section « Reportées à plus tard » + bouton Remettre dans la file, une fiche close ne reste jamais reportée, résumé enrichi (répartition par statut, charge par pilote), recherche étendue à la suite et à l'action attendue, version Claude archivée dans `reference/claude/`.
 - 16/11/2026 (v2.2) : boutons Ne pas valider / Reporter à plus tard (calendrier), zone de texte pour répondre, bouton Annuler + onglet Terminées, statuts Validé/Rejeté distincts de Terminé, onglet Moi (décisions, feu vert IA, tâches bloquantes avec temps estimé), bouton Terminer.

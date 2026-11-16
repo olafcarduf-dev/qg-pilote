@@ -1,10 +1,14 @@
 # Version Claude de QG Pilote Direct (référence)
 
-`index.html` et `README.md` sont la version du site QG écrite par Claude, déposée par Ti Tar le 16/11/2026. Ils sont conservés **tels quels**, sans modification : c'est la source de vérité de cette variante.
+`index.html` et `README.md` sont la version du site QG écrite par Claude, déposée par Ti Tar le 16/11/2026. Ils sont conservés **tels quels** dans la logique et le style ; une exception documentée ci-dessous a été ajoutée le 16/11/2026 (v2.6).
+
+## Mode lecture (ajout v2.6, seule modification)
+
+Hors d'une session Claude, `window.claude.use('mcp')` n'existe pas : la page affichait « Lecture impossible » avec toutes les sections vides. Depuis la v2.6, sans session Claude, la page passe en **mode lecture** : elle récupère `snapshot.json` du dépôt data via l'API GitHub avec le token déjà saisi dans les Réglages du site principal (même origine GitHub Pages, clé locale `qg2-token`), mappe les fiches vers son format interne (`snapTask` : priorités Haute/Normale/Basse → P0/P1/P2, `qgAction` → Intervention, tâches archivées exclues), affiche une bannière « Mode lecture » et désactive les formulaires d'écriture. Avec une session Claude active, rien ne change : lecture et écriture Notion comme avant.
 
 ## Pourquoi elle ne remplace pas le site principal
 
-Cette version lit et écrit dans Notion via `window.claude.use('mcp')`, disponible uniquement dans les artifacts Claude. Sur GitHub Pages, elle afficherait « Cette vue ne peut pas appeler Notion » : il faudrait un Worker authentifié (jeton Notion côté serveur). Le site principal (`app.js` + dépôt privé `qg-pilote-data`) écrit déjà dans Notion sans Worker, via GitHub Actions et le token local du navigateur.
+Cette version lit et écrit dans Notion via `window.claude.use('mcp')`, disponible uniquement dans les artifacts Claude. Sur GitHub Pages, l'écriture est impossible (il faudrait un Worker authentifié, jeton Notion côté serveur) : la page s'y affiche en mode lecture (voir ci-dessus). Le site principal (`app.js` + dépôt privé `qg-pilote-data`) écrit déjà dans Notion sans Worker, via GitHub Actions et le token local du navigateur.
 
 ## Ce qui en a été repris dans le site principal (v2.4)
 
