@@ -79,12 +79,27 @@ main { padding: 0 1rem 2rem; }
 .meta .status { color: var(--text); }
 .due.late { color: var(--late); font-weight: 700; }
 
-button.btn-validate {
+.expected { color: var(--text); font-size: 0.82rem; margin-top: 0.35rem; }
+
+.badges { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.4rem; }
+.badge {
+  font-size: 0.68rem; font-weight: 700; letter-spacing: 0.04em;
+  padding: 0.12rem 0.5rem; border-radius: 999px; border: 1px solid var(--line);
+}
+.badge.time { color: var(--accent); }
+.badge.block { color: var(--late); border-color: var(--late); }
+
+button.btn-validate, button.btn-finish {
   width: 100%; margin-top: 0.6rem; padding: 0.65rem;
-  background: var(--accent-strong); color: #04120a;
   border: none; border-radius: 8px; font-size: 0.95rem; font-weight: 800; cursor: pointer;
 }
-button.btn-validate:disabled { background: var(--panel); color: var(--muted); border: 1px solid var(--line); }
+button.btn-validate {
+  background: var(--accent-strong); color: #04120a;
+}
+button.btn-finish {
+  background: var(--panel); color: var(--accent); border: 1px solid var(--line);
+}
+button.btn-validate:disabled, button.btn-finish:disabled { background: var(--panel); color: var(--muted); border: 1px solid var(--line); }
 
 .toolbar { display: flex; gap: 0.4rem; margin-bottom: 0.7rem; }
 .toolbar input { flex: 2; }
@@ -131,6 +146,7 @@ input:focus, select:focus { outline: 1px solid var(--accent); }
 }
 #modal-box h3 { margin-top: 0.2rem; }
 #modal-box .note { white-space: pre-wrap; font-size: 0.88rem; margin: 0.6rem 0; }
+#modal-box .expected { color: var(--text); }
 #modal-box a { color: var(--accent); word-break: break-all; }
 #modal-box .close { float: right; background: none; border: none; color: var(--muted); font-size: 1.2rem; cursor: pointer; }
 

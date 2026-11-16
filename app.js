@@ -1,5 +1,5 @@
 // QG Pilote v2 — couche DOM + API GitHub. La logique métier vit dans core.js (testé sous Node).
-import { QUEUED, filterTasks, groupByPriority, summary, nextAction, formatDue, isLate, isSafeUrl, isClosed, requestFreshSnapshot } from './core.js';
+import { QUEUED, filterTasks, groupByPriority, summary, nextAction, formatDue, isLate, isSafeUrl, isClosed, sortTasks, requestFreshSnapshot, myDecisions, awaitingGreenLight, onYou, totalMinutes } from './core.js';
 
 const DATA_REPO = 'olafcarduf-dev/qg-pilote-data';
 const API = 'https://api.github.com';
@@ -67,6 +67,13 @@ async function dispatch(eventType, payload = {}) {
 }
 
 // ---- Rendu ----
+function badges(t) {
+  const parts = [];
+  if (typeof t.timeMin === 'number') parts.push(`<span class="badge time">≈ ${esc(t.timeMin)} min</span>`);
+  if (t.blocking) parts.push('<span class="badge block">bloque la suite</span>');
+  return parts.length ? `<div class="badges">${parts.join('')}</div>` : '';
+}
+
 function card(t, opts = {}) {
   const el = document.createElement('article');
   el.className = 'card' + (isClosed(t) ? ' done' : '') + (isLate(t) ? ' late' : '') + (opts.next ? ' next' : '');
@@ -74,10 +81,15 @@ function card(t, opts = {}) {
     <div class="card-top"><span class="prio ${esc(t.priority.toLowerCase())}">${esc(t.priority)}</span><span class="kind">${esc(t.kind)}</span></div>
     <h3>${esc(t.title)}</h3>
     <div class="meta"><span class="status">${esc(t.status)}</span> · ${esc(t.owner)}${t.due ? ` · <span class="due${isLate(t) ? ' late' : ''}">${esc(formatDue(t.due))}</span>` : ''}</div>
-    ${t.status === QUEUED ? '<button class="btn-validate">Valider</button>' : ''}`;
+    ${t.expected ? `<div class="expected">→ ${esc(t.expected)}</div>` : ''}
+    ${badges(t)}
+    ${t.status === QUEUED ? '<button class="btn-validate">Valider</button>' : ''}
+    ${t.status !== QUEUED && !isClosed(t) ? '<button class="btn-finish">Terminer</button>' : ''}`;
   el.addEventListener('click', (e) => { if (!e.target.closest('button')) openModal(t.id); });
-  const btn = el.querySelector('.btn-validate');
-  if (btn) btn.addEventListener('click', () => validate(t, btn));
+  const bVal = el.querySelector('.btn-validate');
+  if (bVal) bVal.addEventListener('click', () => validate(t, bVal));
+  const bFin = el.querySelector('.btn-finish');
+  if (bFin) bFin.addEventListener('click', () => finish(t, bFin));
   return el;
 }
 
@@ -102,6 +114,43 @@ function renderFile() {
     p.textContent = state.snapshot.generated_at
       ? 'Rien à valider. File vide.'
       : 'Snapshot pas encore généré : pose le secret NOTION_TOKEN (voir README du dépôt data) puis attends la synchro horaire ou appuie sur ⟳.';
+    el.append(p);
+  }
+}
+
+function renderMoi() {
+  const el = $('#tab-me');
+  el.textContent = '';
+  if (!state.snapshot) {
+    const p = document.createElement('p');
+    p.className = 'empty';
+    p.textContent = 'Aucun snapshot en cache. Ajoute ton token dans Réglages puis rafraîchis.';
+    el.append(p);
+    return;
+  }
+  const all = tasks();
+  const mine = myDecisions(all);
+  const green = awaitingGreenLight(all);
+  const yours = onYou(all);
+  const sections = [
+    { title: 'Tes décisions', list: mine, hint: 'Ton mot suffit : « je valide » ou la liste des amendements.' },
+    { title: 'Feu vert à l\u2019IA', list: green, hint: 'L\u2019IA agira dès que tu valides.' },
+    { title: 'Toi seul peux le faire', list: yours, hint: yours.length ? `Total estimé : ${totalMinutes(yours)} min` : 'Rien de bloquant sur toi.' }
+  ];
+  let shown = 0;
+  for (const s of sections) {
+    if (!s.list.length) continue;
+    shown += s.list.length;
+    const head = document.createElement('div');
+    head.className = 'group-title';
+    head.innerHTML = `<h2>◈ ${esc(s.title)}</h2><span>${esc(s.hint)}</span>`;
+    el.append(head);
+    for (const t of s.list) el.append(card(t));
+  }
+  if (!shown) {
+    const p = document.createElement('p');
+    p.className = 'empty';
+    p.textContent = 'Rien à ton nom pour l\u2019instant : ni décision, ni feu vert, ni tâche bloquante.';
     el.append(p);
   }
 }
@@ -144,6 +193,7 @@ function renderSummary() {
 
 function render() {
   renderFile();
+  renderMoi();
   renderTasks();
   renderSummary();
 }
@@ -158,46 +208,56 @@ function openModal(id) {
     <div class="card-top"><span class="prio ${esc(t.priority.toLowerCase())}">${esc(t.priority)}</span><span class="kind">${esc(t.kind)}</span></div>
     <h3>${esc(t.title)}</h3>
     <div class="meta"><span class="status">${esc(t.status)}</span> · ${esc(t.owner)}${t.due ? ` · ${esc(formatDue(t.due))}` : ''}</div>
+    ${t.expected ? `<div class="note expected">→ ${esc(t.expected)}</div>` : ''}
+    ${badges(t)}
     ${t.note ? `<div class="note">${esc(t.note)}</div>` : ''}
     ${isSafeUrl(t.source) ? `<a href="${esc(t.source)}" target="_blank" rel="noopener">Ouvrir la source ↗</a>` : ''}
-    ${t.status === QUEUED ? '<button class="btn-validate">Valider</button>' : ''}`;
+    ${t.status === QUEUED ? '<button class="btn-validate">Valider</button>' : ''}
+    ${t.status !== QUEUED && !isClosed(t) ? '<button class="btn-finish">Terminer</button>' : ''}`;
   $('#modal').hidden = false;
   box.querySelector('.close').addEventListener('click', () => { $('#modal').hidden = true; });
-  const btn = box.querySelector('.btn-validate');
-  if (btn) btn.addEventListener('click', () => { $('#modal').hidden = true; validate(t, btn); });
+  const bVal = box.querySelector('.btn-validate');
+  if (bVal) bVal.addEventListener('click', () => { $('#modal').hidden = true; validate(t, bVal); });
+  const bFin = box.querySelector('.btn-finish');
+  if (bFin) bFin.addEventListener('click', () => { $('#modal').hidden = true; finish(t, bFin); });
 }
 
 $('#modal').addEventListener('click', (e) => {
   if (e.target.id === 'modal') $('#modal').hidden = true;
 });
 
-// ---- Validation en un clic : dispatch → Action GitHub → Notion → snapshot frais ----
-async function validate(t, btn) {
+// ---- Écriture générique : dispatch → Action GitHub → Notion → snapshot frais ----
+async function writeAndWait(t, eventType, btn, label, isDone, failMsg) {
   if (!token()) { switchTab('settings'); showToast('Ajoute ton token dans Réglages.', true); return; }
   btn.disabled = true;
   btn.textContent = 'Envoi…';
   try {
     const before = Date.parse(state.snapshot?.generated_at);
-    await dispatch('qg-validate', { pageId: t.id });
-    btn.textContent = 'Validation en cours…';
+    await dispatch(eventType, { pageId: t.id });
+    btn.textContent = `${label} en cours…`;
     const deadline = Date.now() + POLL_MAX_MS;
     while (Date.now() < deadline) {
       await sleep(POLL_MS);
       const snap = await fetchSnapshot();
       const task = snap.tasks.find((x) => x.id === t.id);
-      if (Date.parse(snap.generated_at) > before && task?.status === 'Validé') {
+      if (Date.parse(snap.generated_at) > before && task && isDone(task)) {
         render();
         showToast(`« ${t.title} » → ${task.status}`);
         return;
       }
     }
-    showToast('Pas de confirmation après 3 min. Cause la plus fréquente : statut Notion différent de « À valider Ti Tar » (validation refusée sans écriture). Détail dans validate-log.txt du dépôt data.', true);
+    showToast(failMsg, true);
   } catch (e) {
     showToast(`Échec : ${e.message}`, true);
   } finally {
     render();
   }
 }
+
+const validate = (t, btn) => writeAndWait(t, 'qg-validate', btn, 'Validation', (x) => x.status === 'Validé',
+  'Pas de confirmation après 3 min. Cause la plus fréquente : statut Notion différent de « À valider Ti Tar » (validation refusée sans écriture). Détail dans validate-log.txt du dépôt data.');
+const finish = (t, btn) => writeAndWait(t, 'qg-finish', btn, 'Finalisation', (x) => x.status === 'Terminé',
+  'Pas de confirmation après 3 min. Causes fréquentes : fiche déjà close, ou décision en file (utilise « Valider »). Refus sans écriture. Détail dans finish-log.txt du dépôt data.');
 
 // ---- Synchro ----
 // Sans argument : simple relecture du snapshot commité. Avec force=true (bouton ⟳) :
