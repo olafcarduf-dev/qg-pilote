@@ -18,6 +18,7 @@ const token = () => localStorage.getItem(TOKEN_KEY) || '';
 const tasks = () => state.snapshot?.tasks || [];
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const fmtSync = (iso) => (iso ? new Date(iso).toLocaleString('fr-FR') : 'snapshot vide');
 
 function showToast(msg, isErr = false) {
   const el = $('#toast');
@@ -98,7 +99,9 @@ function renderFile() {
   if (!queued.length) {
     const p = document.createElement('p');
     p.className = 'empty';
-    p.textContent = 'Rien à valider. File vide.';
+    p.textContent = state.snapshot.generated_at
+      ? 'Rien à valider. File vide.'
+      : 'Snapshot pas encore généré : pose le secret NOTION_TOKEN (voir README du dépôt data) puis attends la synchro horaire ou appuie sur ⟳.';
     el.append(p);
   }
 }
@@ -126,7 +129,7 @@ function renderSummary() {
   head.innerHTML = `
     <div class="meta"><span class="status">${s.total}</span> tâches · <span class="status">${s.queued}</span> à valider · <span class="status">${s.inProgress}</span> en cours · <span class="status">${s.done}</span> terminées${s.blocked ? ` · <span class="status">${s.blocked}</span> bloquées` : ''}</div>
     <div class="progress"><div style="width:${s.pct}%"></div></div>
-    <div class="meta">${s.pct}% terminé · sync ${esc(new Date(state.snapshot.generated_at).toLocaleString('fr-FR'))}</div>`;
+    <div class="meta">${s.pct}% terminé · sync ${esc(fmtSync(state.snapshot.generated_at))}</div>`;
   el.append(head);
   const groups = groupByPriority(tasks());
   for (const [p, list] of Object.entries(groups)) {
@@ -209,7 +212,7 @@ async function refresh() {
   try {
     if (!token()) { setSync('token manquant', true); switchTab('settings'); return; }
     const snap = await fetchSnapshot();
-    setSync(`sync ${new Date(snap.generated_at).toLocaleString('fr-FR')}`);
+    setSync(`sync ${fmtSync(snap.generated_at)}`);
     render();
   } catch (e) {
     setSync('erreur sync', true);
@@ -252,7 +255,9 @@ $('#btn-test-token').addEventListener('click', async () => {
   localStorage.setItem(TOKEN_KEY, v);
   try {
     const snap = await fetchSnapshot();
-    $('#token-msg').textContent = `OK : ${snap.tasks.length} tâches dans le registre.`;
+    $('#token-msg').textContent = snap.generated_at
+      ? `OK : ${snap.tasks.length} tâches dans le registre.`
+      : 'Token OK, mais snapshot pas encore généré (secret NOTION_TOKEN ?).';
     render();
   } catch (e) {
     $('#token-msg').textContent = `Échec : ${e.message}`;
@@ -260,10 +265,6 @@ $('#btn-test-token').addEventListener('click', async () => {
 });
 
 // ---- Démarrage ----
-if (state.snapshot) {
-  setSync(`cache ${new Date(state.snapshot.generated_at).toLocaleString('fr-FR')}`);
-} else {
-  setSync('aucune donnée locale');
-}
+setSync(`cache ${fmtSync(state.snapshot?.generated_at)}`);
 render();
 refresh();
