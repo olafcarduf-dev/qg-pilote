@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { QUEUED, sortTasks, filterTasks, groupByPriority, summary, nextAction, formatDue, isLate, isSafeUrl, requestFreshSnapshot } from '../core.js';
+import { QUEUED, sortTasks, filterTasks, groupByPriority, summary, nextAction, formatDue, isLate, isSafeUrl, requestFreshSnapshot, AI_PILOTS, myDecisions, awaitingGreenLight, onYou, totalMinutes } from '../core.js';
 
 let ok = 0;
 const fails = [];
@@ -17,7 +17,10 @@ const t = (o) => ({
   kind: o.kind ?? 'Action à faire',
   due: o.due ?? null,
   source: null,
-  note: null
+  note: null,
+  expected: o.expected ?? null,
+  timeMin: o.timeMin ?? null,
+  blocking: o.blocking ?? false
 });
 
 await atest('tri : la file passe avant tout, puis priorité, puis échéance', async () => {
@@ -162,6 +165,38 @@ await atest('actualisation : aucun faux succès à expiration', async () => {
     pollMs: 1,
     timeout: 0
   }), /Aucun snapshot/);
+});
+
+// ---- Onglet « Moi » ----
+await atest('Moi : décisions de Ti Tar séparées du feu vert IA', () => {
+  const tasks = [
+    t({ title: 'Règles d\u2019arrêt', status: QUEUED, owner: 'Ti Tar' }),
+    t({ title: 'Décision non attribuée', status: QUEUED, owner: 'Non attribué' }),
+    t({ title: 'Sprint de Vibe', status: QUEUED, owner: 'Vibe' }),
+    t({ title: 'Sprint de Claude', status: QUEUED, owner: 'Claude' }),
+    t({ title: 'Tâche en cours', status: 'En cours', owner: 'Vibe' })
+  ];
+  assert.deepEqual(myDecisions(tasks).map(x => x.title), ['Règles d\u2019arrêt', 'Décision non attribuée']);
+  assert.deepEqual(awaitingGreenLight(tasks).map(x => x.title), ['Sprint de Vibe', 'Sprint de Claude']);
+  assert.ok(AI_PILOTS.includes('Python') && AI_PILOTS.includes('ChatGPT'));
+});
+
+await atest('Moi : onYou = pilotées par Ti Tar ou bloquantes, jamais closes ni en file', () => {
+  const tasks = [
+    t({ title: 'Candidatures', owner: 'Ti Tar', status: 'À traiter', timeMin: 25 }),
+    t({ title: 'Sécurité numérique', owner: 'ChatGPT', status: 'En cours', blocking: true, timeMin: 15 }),
+    t({ title: 'Déjà close', owner: 'Ti Tar', status: 'Terminé', blocking: true }),
+    t({ title: 'Décision en file', owner: 'Ti Tar', status: QUEUED }),
+    t({ title: 'Normale IA', owner: 'Vibe', status: 'À traiter' })
+  ];
+  const mine = onYou(tasks);
+  assert.deepEqual(mine.map(x => x.title), ['Sécurité numérique', 'Candidatures']); // En cours avant À traiter
+  assert.equal(totalMinutes(mine), 40);
+});
+
+await atest('totalMinutes : ignore les valeurs non numériques et les absentes', () => {
+  assert.equal(totalMinutes([t({ timeMin: 10 }), t({ timeMin: 5 }), t({}), t({ timeMin: null })]), 15);
+  assert.equal(totalMinutes([]), 0);
 });
 console.log(fails.length ? `\n${fails.length} ÉCHEC(S)` : `\n${ok} test(s) ok, 0 échec(s)`);
 process.exitCode = fails.length ? 1 : 0;

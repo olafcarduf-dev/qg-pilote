@@ -1,6 +1,6 @@
 // QG Pilote v2 — logique pure. Aucun DOM, aucun réseau : testable sous Node.
 // Le snapshot (produit par le dépôt qg-pilote-data) contient des tâches déjà mappées :
-// { id, title, status, owner, priority, kind, due, source, note }
+// { id, title, status, owner, priority, kind, due, source, note, expected, timeMin, blocking, qgAction }
 
 export const QUEUED = 'En attente de validation';
 
@@ -102,3 +102,25 @@ export async function requestFreshSnapshot({ dispatch, fetchSnapshot, sleep, pol
   }
   throw new Error('Aucun snapshot Notion plus récent. Vérifie le dernier run GitHub Actions.');
 }
+
+// ---- Onglet « Moi » : qui doit faire quoi ----
+export const AI_PILOTS = ['Vibe', 'ChatGPT', 'Claude', 'Python'];
+
+// Décisions qui attendent Ti Tar (en file, pas pilotées par une IA).
+export function myDecisions(tasks) {
+  return tasks.filter((t) => t.status === QUEUED && !AI_PILOTS.includes(t.owner));
+}
+
+// Tâches qu'une IA peut faire mais qui attendent le feu vert de Ti Tar.
+export function awaitingGreenLight(tasks) {
+  return tasks.filter((t) => t.status === QUEUED && AI_PILOTS.includes(t.owner));
+}
+
+// Tâches que Ti Tar seul peut faire : pilotées par lui ou « bloque la suite », hors file, non closes.
+export function onYou(tasks) {
+  return sortTasks(tasks.filter((t) =>
+    t.status !== QUEUED && !isClosed(t) && (t.owner === 'Ti Tar' || t.blocking === true)
+  ));
+}
+
+export const totalMinutes = (tasks) => tasks.reduce((sum, t) => sum + (typeof t.timeMin === 'number' ? t.timeMin : 0), 0);
