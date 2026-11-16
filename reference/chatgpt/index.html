@@ -6,12 +6,13 @@
 <link rel="stylesheet" href="style.css"><script src="app.js" defer></script>
 </head>
 <body>
+<a class="skip-link" href="#main-content">Aller au contenu</a>
 <aside class="sidebar">
   <a class="brand" href="#overview"><span class="logo">⌘</span><span>QG Pilote<small>Démonstration interactive</small></span></a>
   <nav id="nav" aria-label="Navigation principale"></nav>
   <div class="sidefoot"><span class="signal"></span> Démo publique · données fictives</div>
 </aside>
-<main>
+<main id="main-content" tabindex="-1">
   <header class="top"><div id="trail">Espace de travail / Vue d’ensemble</div><div class="top-actions"><button id="newProject">+ Projet</button><button class="primary" id="newTask">+ Nouvelle fiche</button></div></header>
   <div class="demo-banner"><div><strong>Démonstration sur données fictives</strong><p>Essayez la file de validation ou explorez les projets. Les changements durent le temps de votre visite. Votre QG réel vit sur <a href="https://olafcarduf-dev.github.io/qg-pilote/">le site principal</a>.</p></div><button id="resetDemo">Réinitialiser</button></div><div id="notice" role="status"></div>
   <div id="content"><p>Chargement du QG…</p></div>
@@ -22,3 +23,4 @@
 </dialog>
 </body>
 </html>
+

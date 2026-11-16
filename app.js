@@ -84,7 +84,7 @@ function card(t, opts = {}) {
   const acts = actionsFor(t);
   el.innerHTML = `
     <div class="card-top"><span class="prio ${esc(t.priority.toLowerCase())}">${esc(t.priority)}</span><span class="kind">${esc(t.kind)}</span></div>
-    <h3>${esc(t.title)}</h3>
+    <h3 id="modal-title">${esc(t.title)}</h3>
     <div class="meta"><span class="status">${esc(t.status)}</span> · ${esc(t.owner)}${t.due ? ` · <span class="due${isLate(t) ? ' late' : ''}">${esc(formatDue(t.due))}</span>` : ''}</div>
     ${t.expected ? `<div class="expected">→ ${esc(t.expected)}</div>` : ''}
     ${badges(t)}
@@ -310,14 +310,14 @@ function openModal(id, focus) {
   box.innerHTML = `
     <button class="close" aria-label="Fermer">✕</button>
     <div class="card-top"><span class="prio ${esc(t.priority.toLowerCase())}">${esc(t.priority)}</span><span class="kind">${esc(t.kind)}</span></div>
-    <h3>${esc(t.title)}</h3>
+    <h3 id="modal-title">${esc(t.title)}</h3>
     <div class="meta"><span class="status">${esc(t.status)}</span> · ${esc(t.owner)}${t.due ? ` · ${esc(formatDue(t.due))}` : ''}</div>
     ${t.expected ? `<div class="note expected">→ ${esc(t.expected)}</div>` : ''}
     ${badges(t)}
     ${t.note ? `<div class="note">${esc(t.note)}</div>` : ''}
     ${isSafeUrl(t.source) ? `<a href="${esc(t.source)}" target="_blank" rel="noopener">Ouvrir la source ↗</a>` : ''}
     ${needAnswer && t.answerKind ? `<div class="muted">Réponse attendue : ${esc(t.answerKind.toLowerCase())}</div>` : ''}
-    ${needAnswer ? `<textarea id="modal-text" rows="3" maxlength="${TEXT_MAX}" placeholder="Ta réponse (facultatif, ajoutée à la fiche Notion)"></textarea>` : ''}
+    ${needAnswer ? `<textarea id="modal-text" aria-label="Ta réponse" rows="3" maxlength="${TEXT_MAX}" placeholder="Ta réponse (facultatif, ajoutée à la fiche Notion)"></textarea>` : ''}
     ${needAnswerDate ? `<label class="muted" for="modal-answer-date">Date de ta réponse</label><input type="date" id="modal-answer-date">` : ''}
     ${acts.postpone ? `<label class="muted" for="modal-date">Nouvelle échéance</label><input type="date" id="modal-date">` : ''}
     <div class="card-actions">
@@ -328,8 +328,8 @@ function openModal(id, focus) {
       ${acts.finish ? '<button class="btn-finish">Terminer</button>' : ''}
       ${acts.undo ? '<button class="btn-undo">Annuler</button>' : ''}
     </div>`;
-  $('#modal').hidden = false;
-  box.querySelector('.close').addEventListener('click', () => { $('#modal').hidden = true; });
+  if (!$('#modal').open) $('#modal').showModal();
+  box.querySelector('.close').addEventListener('click', () => { $('#modal').close(); });
   // Pré-remplissage avec la dernière réponse enregistrée dans Notion (propriétés « Réponse Ti Tar QG » / « Date renseignée QG »).
   const ta = box.querySelector('#modal-text');
   if (ta) ta.value = t.answerText || '';
@@ -338,7 +338,7 @@ function openModal(id, focus) {
 
   const wire = (sel, fn) => {
     const b = box.querySelector(sel);
-    if (b) b.addEventListener('click', () => { $('#modal').hidden = true; fn(); });
+    if (b) b.addEventListener('click', () => { $('#modal').close(); fn(); });
   };
   wire('.btn-validate', () => validate(t, box.querySelector('.btn-validate'), cleanText(), cleanAnswerDate()));
   wire('.btn-reject', () => reject(t, box.querySelector('.btn-reject'), cleanText(), cleanAnswerDate()));
@@ -352,7 +352,7 @@ function openModal(id, focus) {
     dateInput.addEventListener('change', () => { btnPostpone.disabled = !dateInput.value; });
     btnPostpone.addEventListener('click', () => {
       if (!dateInput.value) { showToast('Choisis d\u2019abord une nouvelle échéance.', true); return; }
-      $('#modal').hidden = true;
+      $('#modal').close();
       postpone(t, dateInput.value, btnPostpone, cleanText());
     });
   }
@@ -360,7 +360,7 @@ function openModal(id, focus) {
 }
 
 $('#modal').addEventListener('click', (e) => {
-  if (e.target.id === 'modal') $('#modal').hidden = true;
+  if (e.target.id === 'modal') $('#modal').close();
 });
 
 // ---- Écriture générique : dispatch → Action GitHub → Notion → snapshot frais ----
@@ -468,7 +468,7 @@ function openFormModal(mode, t) {
   const opt = (list, cur) => list.map((o) => `<option value="${esc(o)}"${o === cur ? ' selected' : ''}>${esc(o)}</option>`).join('');
   box.innerHTML = `
     <button class="close" aria-label="Fermer">✕</button>
-    <h3>${isEdit ? 'Modifier la tâche' : 'Nouvelle tâche'}</h3>
+    <h3 id="modal-title">${isEdit ? 'Modifier la tâche' : 'Nouvelle tâche'}</h3>
     <label for="fm-title">Titre</label>
     <input id="fm-title" type="text" maxlength="200" value="${esc(v.title)}" placeholder="Ex. Renouveler le passeport">
     <label for="fm-due">Échéance (optionnel)</label>
@@ -483,8 +483,8 @@ function openFormModal(mode, t) {
     <div class="card-actions">
       <button class="btn-validate" id="fm-save">${isEdit ? 'Enregistrer' : 'Ajouter'}</button>
     </div>`;
-  $('#modal').hidden = false;
-  box.querySelector('.close').addEventListener('click', () => { $('#modal').hidden = true; });
+  if (!$('#modal').open) $('#modal').showModal();
+  box.querySelector('.close').addEventListener('click', () => { $('#modal').close(); });
   box.querySelector('#fm-save').addEventListener('click', (e) => {
     const b = e.currentTarget;
     const f = {
@@ -542,7 +542,11 @@ async function refresh(force = false) {
 // ---- Navigation & réglages ----
 function switchTab(tab) {
   state.tab = tab;
-  for (const b of document.querySelectorAll('nav button')) b.classList.toggle('active', b.dataset.tab === tab);
+  for (const b of document.querySelectorAll('nav button')) {
+    b.classList.toggle('active', b.dataset.tab === tab);
+    if (b.dataset.tab === tab) b.setAttribute('aria-current', 'page');
+    else b.removeAttribute('aria-current');
+  }
   for (const s of document.querySelectorAll('.tab')) s.classList.toggle('active', s.id === `tab-${tab}`);
 }
 
@@ -606,3 +610,4 @@ $('#btn-test-token').addEventListener('click', async () => {
 setSync(`cache ${fmtSync(state.snapshot?.generated_at)}`);
 render();
 refresh();
+
