@@ -21,6 +21,7 @@
     <button data-tab="file" class="active">File</button>
     <button data-tab="me">Moi</button>
     <button data-tab="tasks">Tâches</button>
+    <button data-tab="closed">Terminées</button>
     <button data-tab="summary">Résumé</button>
     <button data-tab="settings">Réglages</button>
   </nav>
@@ -50,11 +51,12 @@
       </div>
       <div id="tasks-list"></div>
     </section>
+    <section id="tab-closed" class="tab"></section>
     <section id="tab-summary" class="tab"></section>
     <section id="tab-settings" class="tab">
       <article class="card">
         <h3>Connexion GitHub</h3>
-        <p>Le site lit, valide et termine via un <strong>token fine-grained GitHub</strong>, stocké uniquement dans ce navigateur (localStorage), jamais envoyé ailleurs qu'à <code>api.github.com</code>. Portée minimale : dépôt <code>qg-pilote-data</code>, permission <em>Contents&nbsp;: Read and write</em>.</p>
+        <p>Le site lit et écrit via un <strong>token fine-grained GitHub</strong>, stocké uniquement dans ce navigateur (localStorage), jamais envoyé ailleurs qu'à <code>api.github.com</code>. Portée minimale : dépôt <code>qg-pilote-data</code>, permission <em>Contents&nbsp;: Read and write</em>.</p>
         <input type="password" id="token-input" placeholder="github_pat_…" autocomplete="off">
         <div class="row">
           <button id="btn-save-token">Enregistrer</button>

@@ -7,6 +7,7 @@ export const QUEUED = 'En attente de validation';
 export const isClosed = (task) => ['Terminé', 'Validé', 'Rejeté'].includes(task.status);
 
 const PRIO_RANK = { Haute: 0, Normale: 1, Basse: 2 };
+const CLOSED_RANK = { 'Terminé': 0, 'Validé': 1, 'Rejeté': 2 };
 
 function statusRank(t) {
   if (t.status === QUEUED) return 0;
@@ -124,3 +125,21 @@ export function onYou(tasks) {
 }
 
 export const totalMinutes = (tasks) => tasks.reduce((sum, t) => sum + (typeof t.timeMin === 'number' ? t.timeMin : 0), 0);
+
+// ---- Quels boutons afficher selon le statut ----
+// La file décide (Valider / Ne pas valider / Reporter), les closes s'annulent, le reste se termine.
+export function actionsFor(t) {
+  if (t.status === QUEUED) return { validate: true, reject: true, postpone: true, finish: false, undo: false };
+  if (isClosed(t)) return { validate: false, reject: false, postpone: false, finish: false, undo: true };
+  return { validate: false, reject: false, postpone: false, finish: true, undo: false };
+}
+
+// Tâches closes, groupables : Terminé d'abord, puis Validé, puis Rejeté.
+export function closedTasks(tasks) {
+  return [...tasks.filter(isClosed)].sort((a, b) =>
+    (CLOSED_RANK[a.status] - CLOSED_RANK[b.status]) ||
+    ((PRIO_RANK[a.priority] ?? 1) - (PRIO_RANK[b.priority] ?? 1)) ||
+    String(b.due ?? '').localeCompare(String(a.due ?? '')) ||
+    a.title.localeCompare(b.title)
+  );
+}

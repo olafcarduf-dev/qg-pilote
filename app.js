@@ -1,5 +1,5 @@
 // QG Pilote v2 — couche DOM + API GitHub. La logique métier vit dans core.js (testé sous Node).
-import { QUEUED, filterTasks, groupByPriority, summary, nextAction, formatDue, isLate, isSafeUrl, isClosed, sortTasks, requestFreshSnapshot, myDecisions, awaitingGreenLight, onYou, totalMinutes } from './core.js';
+import { QUEUED, filterTasks, groupByPriority, summary, nextAction, formatDue, isLate, isSafeUrl, isClosed, sortTasks, requestFreshSnapshot, myDecisions, awaitingGreenLight, onYou, totalMinutes, closedTasks, actionsFor } from './core.js';
 
 const DATA_REPO = 'olafcarduf-dev/qg-pilote-data';
 const API = 'https://api.github.com';
@@ -7,6 +7,7 @@ const TOKEN_KEY = 'qg2-token';
 const SNAP_KEY = 'qg2-snapshot';
 const POLL_MS = 10_000;
 const POLL_MAX_MS = 3 * 60_000;
+const TEXT_MAX = 200;
 
 const $ = (s) => document.querySelector(s);
 const state = { snapshot: readCache(), tab: 'file', q: '', status: '', priority: '' };
@@ -19,6 +20,7 @@ const tasks = () => state.snapshot?.tasks || [];
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const fmtSync = (iso) => (iso ? new Date(iso).toLocaleString('fr-FR') : 'snapshot vide');
+const cleanText = () => ($('#modal-text')?.value || '').trim().slice(0, TEXT_MAX);
 
 function showToast(msg, isErr = false) {
   const el = $('#toast');
@@ -77,19 +79,31 @@ function badges(t) {
 function card(t, opts = {}) {
   const el = document.createElement('article');
   el.className = 'card' + (isClosed(t) ? ' done' : '') + (isLate(t) ? ' late' : '') + (opts.next ? ' next' : '');
+  const acts = actionsFor(t);
   el.innerHTML = `
     <div class="card-top"><span class="prio ${esc(t.priority.toLowerCase())}">${esc(t.priority)}</span><span class="kind">${esc(t.kind)}</span></div>
     <h3>${esc(t.title)}</h3>
     <div class="meta"><span class="status">${esc(t.status)}</span> · ${esc(t.owner)}${t.due ? ` · <span class="due${isLate(t) ? ' late' : ''}">${esc(formatDue(t.due))}</span>` : ''}</div>
     ${t.expected ? `<div class="expected">→ ${esc(t.expected)}</div>` : ''}
     ${badges(t)}
-    ${t.status === QUEUED ? '<button class="btn-validate">Valider</button>' : ''}
-    ${t.status !== QUEUED && !isClosed(t) ? '<button class="btn-finish">Terminer</button>' : ''}`;
+    ${acts.validate ? `
+      <div class="card-actions">
+        <button class="btn-validate">Valider</button>
+        <button class="btn-reject" title="Ne pas valider">Refuser</button>
+        <button class="btn-postpone" title="Reporter à plus tard">Reporter</button>
+      </div>` : ''}
+    ${acts.finish ? '<button class="btn-finish">Terminer</button>' : ''}
+    ${acts.undo ? '<button class="btn-undo">Annuler</button>' : ''}`;
   el.addEventListener('click', (e) => { if (!e.target.closest('button')) openModal(t.id); });
-  const bVal = el.querySelector('.btn-validate');
-  if (bVal) bVal.addEventListener('click', () => validate(t, bVal));
-  const bFin = el.querySelector('.btn-finish');
-  if (bFin) bFin.addEventListener('click', () => finish(t, bFin));
+  const wire = (sel, fn) => {
+    const b = el.querySelector(sel);
+    if (b) b.addEventListener('click', (e) => { e.stopPropagation(); fn(t, b); });
+  };
+  wire('.btn-validate', (t2, b) => validate(t2, b));
+  wire('.btn-reject', (t2, b) => reject(t2, b));
+  wire('.btn-postpone', () => openModal(t.id, 'postpone'));
+  wire('.btn-finish', (t2, b) => finish(t2, b));
+  wire('.btn-undo', (t2, b) => undo(t2, b));
   return el;
 }
 
@@ -111,9 +125,7 @@ function renderFile() {
   if (!queued.length) {
     const p = document.createElement('p');
     p.className = 'empty';
-    p.textContent = state.snapshot.generated_at
-      ? 'Rien à valider. File vide.'
-      : 'Snapshot pas encore généré : pose le secret NOTION_TOKEN (voir README du dépôt data) puis attends la synchro horaire ou appuie sur ⟳.';
+    p.textContent = 'Rien à valider. File vide.';
     el.append(p);
   }
 }
@@ -133,7 +145,7 @@ function renderMoi() {
   const green = awaitingGreenLight(all);
   const yours = onYou(all);
   const sections = [
-    { title: 'Tes décisions', list: mine, hint: 'Ton mot suffit : « je valide » ou la liste des amendements.' },
+    { title: 'Tes décisions', list: mine, hint: 'Valide, refuse ou reporte en un clic.' },
     { title: 'Feu vert à l\u2019IA', list: green, hint: 'L\u2019IA agira dès que tu valides.' },
     { title: 'Toi seul peux le faire', list: yours, hint: yours.length ? `Total estimé : ${totalMinutes(yours)} min` : 'Rien de bloquant sur toi.' }
   ];
@@ -150,8 +162,37 @@ function renderMoi() {
   if (!shown) {
     const p = document.createElement('p');
     p.className = 'empty';
-    p.textContent = 'Rien à ton nom pour l\u2019instant : ni décision, ni feu vert, ni tâche bloquante.';
+    p.textContent = 'Rien à ton nom pour l\u2019instant.';
     el.append(p);
+  }
+}
+
+function renderClosed() {
+  const el = $('#tab-closed');
+  el.textContent = '';
+  if (!state.snapshot) {
+    const p = document.createElement('p');
+    p.className = 'empty';
+    p.textContent = 'Aucun snapshot en cache.';
+    el.append(p);
+    return;
+  }
+  const closed = closedTasks(tasks());
+  if (!closed.length) {
+    const p = document.createElement('p');
+    p.className = 'empty';
+    p.textContent = 'Aucune tâche close pour l\u2019instant.';
+    el.append(p);
+    return;
+  }
+  for (const [status, label] of [['Terminé', 'Terminées'], ['Validé', 'Validées'], ['Rejeté', 'Rejetées']]) {
+    const list = closed.filter((t) => t.status === status);
+    if (!list.length) continue;
+    const head = document.createElement('div');
+    head.className = 'group-title';
+    head.innerHTML = `<h2>◈ ${esc(label)}</h2><span>${list.length}</span>`;
+    el.append(head);
+    for (const t of list) el.append(card(t));
   }
 }
 
@@ -194,15 +235,20 @@ function renderSummary() {
 function render() {
   renderFile();
   renderMoi();
+  renderClosed();
   renderTasks();
   renderSummary();
 }
 
-// ---- Modale fiche ----
-function openModal(id) {
+// ---- Modale de décision ----
+// Pour une décision en file : zone de texte (réponse facultative), calendrier (report), 3 boutons.
+// Pour une tâche ouverte : Terminer. Pour une fiche close : Annuler.
+function openModal(id, focus) {
   const t = tasks().find((x) => x.id === id);
   if (!t) return;
+  const acts = actionsFor(t);
   const box = $('#modal-box');
+  const needAnswer = acts.validate || acts.reject || acts.finish || acts.postpone;
   box.innerHTML = `
     <button class="close" aria-label="Fermer">✕</button>
     <div class="card-top"><span class="prio ${esc(t.priority.toLowerCase())}">${esc(t.priority)}</span><span class="kind">${esc(t.kind)}</span></div>
@@ -212,14 +258,38 @@ function openModal(id) {
     ${badges(t)}
     ${t.note ? `<div class="note">${esc(t.note)}</div>` : ''}
     ${isSafeUrl(t.source) ? `<a href="${esc(t.source)}" target="_blank" rel="noopener">Ouvrir la source ↗</a>` : ''}
-    ${t.status === QUEUED ? '<button class="btn-validate">Valider</button>' : ''}
-    ${t.status !== QUEUED && !isClosed(t) ? '<button class="btn-finish">Terminer</button>' : ''}`;
+    ${needAnswer ? `<textarea id="modal-text" rows="3" maxlength="${TEXT_MAX}" placeholder="Ta réponse (facultatif, ajoutée à la fiche Notion)"></textarea>` : ''}
+    ${acts.postpone ? `<label class="muted" for="modal-date">Nouvelle échéance</label><input type="date" id="modal-date">` : ''}
+    <div class="card-actions">
+      ${acts.validate ? '<button class="btn-validate">Valider</button>' : ''}
+      ${acts.reject ? '<button class="btn-reject">Ne pas valider</button>' : ''}
+      ${acts.postpone ? '<button class="btn-postpone" id="btn-modal-postpone" disabled>Reporter à plus tard</button>' : ''}
+      ${acts.finish ? '<button class="btn-finish">Terminer</button>' : ''}
+      ${acts.undo ? '<button class="btn-undo">Annuler</button>' : ''}
+    </div>`;
   $('#modal').hidden = false;
   box.querySelector('.close').addEventListener('click', () => { $('#modal').hidden = true; });
-  const bVal = box.querySelector('.btn-validate');
-  if (bVal) bVal.addEventListener('click', () => { $('#modal').hidden = true; validate(t, bVal); });
-  const bFin = box.querySelector('.btn-finish');
-  if (bFin) bFin.addEventListener('click', () => { $('#modal').hidden = true; finish(t, bFin); });
+
+  const wire = (sel, fn) => {
+    const b = box.querySelector(sel);
+    if (b) b.addEventListener('click', () => { $('#modal').hidden = true; fn(); });
+  };
+  wire('.btn-validate', () => validate(t, box.querySelector('.btn-validate'), cleanText()));
+  wire('.btn-reject', () => reject(t, box.querySelector('.btn-reject'), cleanText()));
+  wire('.btn-finish', () => finish(t, box.querySelector('.btn-finish'), cleanText()));
+  wire('.btn-undo', () => undo(t, box.querySelector('.btn-undo')));
+
+  const btnPostpone = box.querySelector('#btn-modal-postpone');
+  const dateInput = box.querySelector('#modal-date');
+  if (btnPostpone && dateInput) {
+    dateInput.addEventListener('change', () => { btnPostpone.disabled = !dateInput.value; });
+    btnPostpone.addEventListener('click', () => {
+      if (!dateInput.value) { showToast('Choisis d\u2019abord une nouvelle échéance.', true); return; }
+      $('#modal').hidden = true;
+      postpone(t, dateInput.value, btnPostpone, cleanText());
+    });
+  }
+  if (focus === 'postpone' && dateInput) dateInput.focus();
 }
 
 $('#modal').addEventListener('click', (e) => {
@@ -227,13 +297,13 @@ $('#modal').addEventListener('click', (e) => {
 });
 
 // ---- Écriture générique : dispatch → Action GitHub → Notion → snapshot frais ----
-async function writeAndWait(t, eventType, btn, label, isDone, failMsg) {
+async function writeAndWait(t, eventType, btn, label, isDone, failMsg, payload = {}) {
   if (!token()) { switchTab('settings'); showToast('Ajoute ton token dans Réglages.', true); return; }
   btn.disabled = true;
   btn.textContent = 'Envoi…';
   try {
     const before = Date.parse(state.snapshot?.generated_at);
-    await dispatch(eventType, { pageId: t.id });
+    await dispatch(eventType, { pageId: t.id, ...payload });
     btn.textContent = `${label} en cours…`;
     const deadline = Date.now() + POLL_MAX_MS;
     while (Date.now() < deadline) {
@@ -242,7 +312,7 @@ async function writeAndWait(t, eventType, btn, label, isDone, failMsg) {
       const task = snap.tasks.find((x) => x.id === t.id);
       if (Date.parse(snap.generated_at) > before && task && isDone(task)) {
         render();
-        showToast(`« ${t.title} » → ${task.status}`);
+        showToast(`« ${t.title} » → ${task.status}${task.due ? ` · ${formatDue(task.due)}` : ''}`);
         return;
       }
     }
@@ -254,10 +324,20 @@ async function writeAndWait(t, eventType, btn, label, isDone, failMsg) {
   }
 }
 
-const validate = (t, btn) => writeAndWait(t, 'qg-validate', btn, 'Validation', (x) => x.status === 'Validé',
-  'Pas de confirmation après 3 min. Cause la plus fréquente : statut Notion différent de « À valider Ti Tar » (validation refusée sans écriture). Détail dans validate-log.txt du dépôt data.');
-const finish = (t, btn) => writeAndWait(t, 'qg-finish', btn, 'Finalisation', (x) => x.status === 'Terminé',
-  'Pas de confirmation après 3 min. Causes fréquentes : fiche déjà close, ou décision en file (utilise « Valider »). Refus sans écriture. Détail dans finish-log.txt du dépôt data.');
+const validate = (t, btn, text = '') => writeAndWait(t, 'qg-validate', btn, 'Validation', (x) => x.status === 'Validé',
+  'Pas de confirmation après 3 min. Cause la plus fréquente : statut Notion différent de « À valider Ti Tar » (refus sans écriture). Détail dans validate-log.txt du dépôt data.',
+  text ? { text } : {});
+const reject = (t, btn, text = '') => writeAndWait(t, 'qg-reject', btn, 'Rejet', (x) => x.status === 'Rejeté',
+  'Pas de confirmation après 3 min. Cause la plus fréquente : la décision n\u2019était plus « À valider Ti Tar » (refus sans écriture). Détail dans reject-log.txt du dépôt data.',
+  text ? { text } : {});
+const postpone = (t, due, btn, text = '') => writeAndWait(t, 'qg-postpone', btn, 'Report', (x) => x.status === QUEUED && x.due === due,
+  `Pas de confirmation après 3 min. Le report exige une date valide et une décision « À valider Ti Tar » (refus sans écriture). Détail dans postpone-log.txt du dépôt data.`,
+  { due, ...(text ? { text } : {}) });
+const finish = (t, btn, text = '') => writeAndWait(t, 'qg-finish', btn, 'Finalisation', (x) => x.status === 'Terminé',
+  'Pas de confirmation après 3 min. Causes fréquentes : fiche déjà close, ou décision en file (utilise « Valider »). Refus sans écriture. Détail dans finish-log.txt du dépôt data.',
+  text ? { text } : {});
+const undo = (t, btn) => writeAndWait(t, 'qg-undo', btn, 'Annulation', (x) => !isClosed(x),
+  'Pas de confirmation après 3 min. Annulation possible uniquement sur une fiche close (Terminé, Validé ou Rejeté). Détail dans undo-log.txt du dépôt data.');
 
 // ---- Synchro ----
 // Sans argument : simple relecture du snapshot commité. Avec force=true (bouton ⟳) :
