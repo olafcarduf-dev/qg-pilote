@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QG Pilote Direct</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500&family=IBM+Plex+Sans+Condensed:wght@600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* Plan : registre de décisions, une colonne, lu au pouce. Les couleurs d'état reprennent
+   celles des statuts de la base Notion (jaune, bleu, gris, vert, rouge). */
+:root{
+  --bg:#f2f4f7; --surface:#ffffff; --ink:#16202b; --muted:#5a6978; --line:#d7dee6; --accent:#1f5fbf;
+  --wait:#8a5200; --wait-bg:#ffefc7; --run:#1f5fbf; --run-bg:#e0ebfc; --todo:#51606f; --todo-bg:#e7ecf1;
+  --ok:#17693f; --ok-bg:#dcf2e5; --no:#a8261f; --no-bg:#fbe0dd;
+  --display:"IBM Plex Sans Condensed","Arial Narrow",system-ui,sans-serif;
+  --body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#0f141a; --surface:#182029; --ink:#e7edf3; --muted:#9aa8b6; --line:#2b3643; --accent:#84b4ff;
+    --wait:#f4bd55; --wait-bg:#3a2b0a; --run:#84b4ff; --run-bg:#152640; --todo:#a3b0bd; --todo-bg:#232d38;
+    --ok:#74d39f; --ok-bg:#12301f; --no:#ff958c; --no-bg:#3c1613;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0f141a; --surface:#182029; --ink:#e7edf3; --muted:#9aa8b6; --line:#2b3643; --accent:#84b4ff;
+  --wait:#f4bd55; --wait-bg:#3a2b0a; --run:#84b4ff; --run-bg:#152640; --todo:#a3b0bd; --todo-bg:#232d38;
+  --ok:#74d39f; --ok-bg:#12301f; --no:#ff958c; --no-bg:#3c1613;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font:400 16px/1.5 var(--body);-webkit-text-size-adjust:100%}
+.wrap{max-width:680px;margin:0 auto;padding:16px 16px 96px;display:flex;flex-direction:column;gap:16px}
+header{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;flex-wrap:wrap}
+h1{font:600 28px/1.1 var(--display);margin:0;letter-spacing:.01em}
+h1 small{display:block;font:400 13px/1.4 var(--body);color:var(--muted);letter-spacing:0;margin-top:4px}
+h2{font:600 19px/1.2 var(--display);margin:0;text-wrap:balance}
+.sync{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted)}
+button{font:500 15px/1.2 var(--body);color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:10px 14px;cursor:pointer}
+button:disabled{opacity:.55;cursor:default}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--surface)}
+button.danger{color:var(--no);border-color:var(--no)}
+button.quiet{padding:8px 10px;font-size:13px}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+nav{display:flex;gap:4px;border-bottom:1px solid var(--line)}
+nav a{flex:1;text-align:center;padding:10px 6px;color:var(--muted);text-decoration:none;font-weight:500;font-size:15px;border-bottom:2px solid transparent;margin-bottom:-1px}
+nav a[aria-current="page"]{color:var(--ink);border-bottom-color:var(--accent)}
+.badge{font:500 12px/1 var(--mono);background:var(--wait-bg);color:var(--wait);border-radius:10px;padding:3px 7px;margin-left:4px}
+section{display:none;flex-direction:column;gap:12px}
+section.on{display:flex}
+.list{display:flex;flex-direction:column;gap:8px}
+.card{display:flex;flex-direction:column;gap:6px;text-align:left;width:100%;background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--todo);border-radius:8px;padding:12px 14px}
+.card.wait{border-left-color:var(--wait)} .card.run{border-left-color:var(--run)} .card.ok{border-left-color:var(--ok)} .card.no{border-left-color:var(--no)}
+.card .t{font-weight:600;font-size:16px;line-height:1.35;overflow-wrap:anywhere}
+.row{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.meta{font-size:13px;color:var(--muted)}
+.pill{font-size:12px;font-weight:600;border-radius:10px;padding:2px 8px;background:var(--todo-bg);color:var(--todo);white-space:nowrap}
+.pill.wait{background:var(--wait-bg);color:var(--wait)} .pill.run{background:var(--run-bg);color:var(--run)}
+.pill.ok{background:var(--ok-bg);color:var(--ok)} .pill.no{background:var(--no-bg);color:var(--no)}
+.prio{font:500 12px/1 var(--mono);border:1px solid var(--line);border-radius:4px;padding:3px 5px;color:var(--muted)}
+.prio.p0{color:var(--no);border-color:var(--no)}
+.note{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:12px 14px;font-size:14px;color:var(--muted)}
+.note.err{border-color:var(--no);color:var(--ink)}
+.note strong{color:var(--ink)}
+.tools{display:flex;flex-wrap:wrap;gap:8px}
+.tools input,.tools select,textarea,input[type=date]{font:400 15px/1.3 var(--body);color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:10px 12px;min-width:0}
+.tools input{flex:1 1 180px} .tools select{flex:1 1 130px}
+input[type=date]{width:100%}
+textarea{width:100%;min-height:72px;resize:vertical}
+.bar{display:flex;height:14px;border-radius:7px;overflow:hidden;background:var(--todo-bg)}
+.bar span{display:block;height:100%}
+.bar .wait{background:var(--wait)} .bar .run{background:var(--run)} .bar .todo{background:var(--todo)} .bar .ok{background:var(--ok)} .bar .no{background:var(--no)}
+table{width:100%;border-collapse:collapse;font-size:14px;font-variant-numeric:tabular-nums}
+th,td{text-align:left;padding:8px 6px;border-bottom:1px solid var(--line)}
+th{font-weight:500;color:var(--muted)} td.n,th.n{text-align:right}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:14px;display:flex;flex-direction:column;gap:12px}
+.scrim{position:fixed;inset:0;background:rgba(8,12,18,.55);display:none;align-items:flex-end;justify-content:center;z-index:10}
+.scrim.on{display:flex}
+.sheet{background:var(--surface);color:var(--ink);width:100%;max-width:680px;max-height:92%;overflow-y:auto;border-radius:14px 14px 0 0;padding:18px 16px 24px;display:flex;flex-direction:column;gap:14px}
+.sheet .suite{white-space:pre-wrap;overflow-wrap:anywhere;font-size:15px;border-left:3px solid var(--line);padding-left:12px}
+.sheet a{color:var(--accent);overflow-wrap:anywhere}
+.sheet dl{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;margin:0;font-size:14px}
+.sheet dt{color:var(--muted)} .sheet dd{margin:0}
+.actions{display:flex;flex-wrap:wrap;gap:8px}
+.actions button{flex:1 1 140px}
+label{font-size:13px;color:var(--muted);display:block;margin-bottom:4px}
+.skel{height:64px;border-radius:8px;background:var(--todo-bg)}
+@media (prefers-reduced-motion:no-preference){.skel{animation:pulse 1.4s ease-in-out infinite}}
+@keyframes pulse{50%{opacity:.5}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>QG Pilote Direct<small>La file « QG — Tâches &amp; Décisions », lue dans Notion à l'instant.</small></h1>
+    <div class="sync"><span id="sync" role="status">Connexion à Notion…</span><button class="quiet" id="refresh" type="button" disabled>Actualiser</button></div>
+  </header>
+  <nav aria-label="Vues">
+    <a href="#a-valider" data-view="a-valider">À décider<span class="badge" id="badge" hidden></span></a>
+    <a href="#a-faire" data-view="a-faire">À faire<span class="badge" id="badge2" hidden></span></a>
+    <a href="#taches" data-view="taches">Tâches</a>
+    <a href="#resume" data-view="resume">Résumé</a>
+  </nav>
+  <div id="alert"></div>
+  <section id="v-a-valider"><h2>Décisions pour toi</h2><div class="list" id="queue"><div class="skel"></div><div class="skel"></div></div><h2>L'IA attend ton feu vert</h2><div class="list" id="auth"></div><h2>Reportées à plus tard</h2><div class="list" id="later"></div></section>
+  <section id="v-a-faire"><h2>À faire par toi, l'IA ne peut pas</h2><div id="mine-sum"></div><div class="list" id="mine"><div class="skel"></div></div></section>
+  <section id="v-taches">
+    <div class="tools">
+      <input id="f-q" type="search" placeholder="Rechercher un titre ou une suite" autocomplete="off" aria-label="Rechercher">
+      <select id="f-statut" aria-label="Statut"><option value="">Tous les statuts</option></select>
+      <select id="f-pilote" aria-label="Pilote"><option value="">Tous les pilotes</option></select>
+    </div>
+    <div class="list" id="all"><div class="skel"></div><div class="skel"></div><div class="skel"></div></div>
+  </section>
+  <section id="v-resume"><div id="summary"><div class="skel"></div></div></section>
+</div>
+<div class="scrim" id="scrim"><div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title" tabindex="-1"></div></div>
+
+<script>
+(function(){
+'use strict';
+var DS='collection://56f82f06-e437-4d78-8b18-2a5effe8db1e';
+var SERVER='Notion', Q_TOOL='notion-query-data-sources', U_TOOL='notion-update-page';
+var COLS='url, "Tâche" AS titre, "Statut" AS statut, "Pilote" AS pilote, "Auteur" AS auteur, "Priorité" AS priorite, "Type" AS type, "date:Date:start" AS date, "Source" AS source, "Validation utilisateur" AS valide, "Suite" AS suite, "Intervention QG" AS interv, "Temps Ti Tar (min)" AS temps, "Bloque la suite" AS bloque, "Action attendue de Ti Tar" AS action';
+var VIEW='view://0acf1f9c-91b6-48cb-a0c5-d3f753716f5e';
+var PENDING='À valider Ti Tar';
+var STATUSES=['À valider Ti Tar','En cours','À traiter','Validé','Terminé','Rejeté'];
+var CLS={'À valider Ti Tar':'wait','En cours':'run','À traiter':'todo','Validé':'ok','Terminé':'ok','Rejeté':'no'};
+var CLOSED={'Validé':1,'Terminé':1,'Rejeté':1};
+var PRIO=['P0','P1','P2','P3'];
+var DENIED={needs_reauth:1,server_not_connected:1,selection_required:1,server_not_found:1,not_in_manifest:1,blocked_by_policy:1,approval_required:1,consent_required:1,not_granted:1,capability_disabled:1,capability_removed:1,user_changed:1};
+var AMBIGUOUS={server_unavailable:1,upstream_error:1,cancelled:1};
+
+var mcp=null, tasks=[], more=false, loadedAt=null, state='loading', loadErr=null, loading=false, writing=false, opener=null;
+var filters={q:'',statut:'',pilote:''};
+var $=function(id){return document.getElementById(id);};
+
+function h(tag,props){
+  var e=document.createElement(tag), i, k;
+  if(props) for(k in props){ if(k==='class') e.className=props[k]; else if(k==='text') e.textContent=props[k]; else if(k.slice(0,2)==='on') e.addEventListener(k.slice(2),props[k]); else if(props[k]!==null&&props[k]!==undefined&&props[k]!==false) e.setAttribute(k,props[k]===true?'':props[k]); }
+  for(i=2;i<arguments.length;i++){ var c=arguments[i]; if(c===null||c===undefined||c===false) continue; e.appendChild(typeof c==='string'?document.createTextNode(c):c); }
+  return e;
+}
+function clear(e){ while(e.firstChild) e.removeChild(e.firstChild); }
+function sleep(ms){ return new Promise(function(r){setTimeout(r,ms);}); }
+function safeUrl(u){ return typeof u==='string' && /^https:\/\/[^\s]+$/i.test(u) ? u : ''; }
+function parisDate(d){ return new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Paris',year:'numeric',month:'2-digit',day:'2-digit'}).format(d||new Date()); }
+function parisStamp(){ var d=new Date(); var p=parisDate(d).split('-'); var t=new Intl.DateTimeFormat('fr-FR',{timeZone:'Europe/Paris',hour:'2-digit',minute:'2-digit',hour12:false}).format(d).replace(':','h'); return p[2]+'/'+p[1]+'/'+p[0]+' à '+t; }
+function fr(iso){ var p=String(iso||'').slice(0,10).split('-'); return p.length===3?p[2]+'/'+p[1]+'/'+p[0]:''; }
+function ageDays(iso){ if(!/^\d{4}-\d{2}-\d{2}/.test(iso||'')) return null; var a=Date.parse(iso.slice(0,10)+'T00:00:00Z'), b=Date.parse(parisDate()+'T00:00:00Z'); var n=Math.round((b-a)/86400000); return n>=0?n:null; }
+
+function payloadOf(res){
+  var p=res&&res.payload;
+  if(typeof p==='string'){ try{p=JSON.parse(p);}catch(e){p=null;} }
+  if(!p||!Array.isArray(p.results)) throw {code:'bad_shape',message:'Notion a répondu dans un format inattendu.'};
+  return p;
+}
+function alias(r){ return {url:r.url,titre:r['Tâche'],statut:r['Statut'],pilote:r['Pilote'],auteur:r['Auteur'],priorite:r['Priorité'],type:r['Type'],date:r['date:Date:start'],source:r['Source'],valide:r['Validation utilisateur'],suite:r['Suite'],interv:r['Intervention QG'],temps:r['Temps Ti Tar (min)'],bloque:r['Bloque la suite'],action:r['Action attendue de Ti Tar'],rep:r['Réponse attendue QG'],repTexte:r['Réponse Ti Tar QG'],repDate:r['date:Date renseignée QG:start'],reportee:r['Reportée QG']}; }
+function toTask(raw){
+  var r=alias(raw);
+  return { url:safeUrl(r.url), titre:String(r.titre||'(sans titre)'), statut:String(r.statut||''), pilote:String(r.pilote||'Non attribué'),
+    auteur:String(r.auteur||''), priorite:PRIO.indexOf(r.priorite)>=0?r.priorite:'', type:String(r.type||''),
+    date:typeof r.date==='string'?r.date.slice(0,10):'', source:safeUrl(r.source), valide:r.valide==='__YES__', suite:r.suite?String(r.suite):'', interv:String(r.interv||''), temps:Number(r.temps)>0?Number(r.temps):0, bloque:r.bloque==='__YES__', action:String(r.action||''), rep:String(r.rep||''), repTexte:String(r.repTexte||''), repDate:String(r.repDate||'').slice(0,10), reportee:r.reportee==='__YES__' };
+}
+function isAuth(t){ return t.interv==='Autorisation IA'; }
+function isMine(t){ return !CLOSED[t.statut]&&(t.interv==='Action personnelle'||(t.pilote==='Ti Tar'&&t.statut!==PENDING)); }
+function statusFor(target,mode){ return mode==='auth'&&target==='Validé'?'En cours':target; }
+function rank(t){ var s=STATUSES.indexOf(t.statut); var p=PRIO.indexOf(t.priorite); return [s<0?9:s, p<0?9:p, t.date||'9999', t.titre]; }
+function sorted(list){ return list.slice().sort(function(a,b){ var x=rank(a), y=rank(b), i; for(i=0;i<3;i++){ if(x[i]<y[i]) return -1; if(x[i]>y[i]) return 1; } return x[3].localeCompare(y[3],'fr'); }); }
+
+function explain(e){
+  var c=e&&e.code;
+  if(/allowance|quota|rate.?limit/i.test(String(e&&e.message||''))) return 'Notion a atteint sa limite de requêtes. Réessaie dans quelques minutes avec Actualiser.';
+  if(c==='needs_reauth') return 'La connexion à Notion a expiré. Reconnecte Notion dans Claude (Réglages, Connecteurs), puis appuie sur Actualiser.';
+  if(c==='server_not_connected'||c==='server_not_found') return 'Aucun connecteur Notion n\'est disponible pour ce compte. Ajoute Notion dans Claude (Réglages, Connecteurs), puis appuie sur Actualiser.';
+  if(c==='selection_required') return 'Plusieurs connecteurs Notion existent sur ce compte. Choisis celui de l\'Espace de Ti Tar quand Claude le demande, puis appuie sur Actualiser.';
+  if(c==='not_in_manifest'||c==='consent_required'||c==='approval_required') return 'Cette page n\'a pas l\'autorisation d\'utiliser Notion. Appuie sur Actualiser et accepte la demande de Claude.';
+  if(c==='blocked_by_policy') return 'Les règles de ton organisation bloquent cet outil Notion pour cette page.';
+  if(c==='not_granted'||c==='capability_disabled'||c==='capability_removed'||c==='no_mcp') return 'Cette vue ne peut pas appeler Notion. Ouvre la page dans Claude, connecté à ton compte.';
+  if(c==='user_changed') return 'Le compte connecté a changé. Recharge la page.';
+  if(c==='server_unavailable'||c==='rate_limited') return 'Notion ne répond pas pour l\'instant. Réessaie dans une minute.';
+  if(c==='tool_error') return 'Notion a refusé la demande : '+String(e.message||'').slice(0,220);
+  if(c==='bad_shape') return e.message;
+  return 'L\'appel à Notion a échoué ('+(c||'erreur inconnue')+'). Réessaie avec Actualiser.';
+}
+
+async function query(){
+  var input={data:{mode:'view',view_url:VIEW,page_size:100}};
+  try{ return payloadOf(await mcp.callTool(SERVER,Q_TOOL,input,{cache:false})); }
+  catch(e){
+    if(e&&e.retryable===true){ await sleep(Math.min(e.retryAfterMs||(1200+Math.random()*1800),8000)); return payloadOf(await mcp.callTool(SERVER,Q_TOOL,input,{cache:false})); }
+    throw e;
+  }
+}
+async function load(){
+  if(!mcp||loading) return;
+  loading=true; $('refresh').disabled=true; $('sync').textContent='Lecture de Notion…';
+  try{
+    var p=await query();
+    tasks=p.results.map(toTask).filter(function(t){return t.url;});
+    more=!!p.has_more; loadedAt=new Date(); state='ok'; loadErr=null;
+  }catch(e){
+    loadErr=e||{};
+    if(DENIED[loadErr.code]||state!=='ok'){ if(DENIED[loadErr.code]) tasks=[]; state='error'; }
+  }finally{ loading=false; $('refresh').disabled=false; render(); }
+}
+
+function card(t){
+  var age=CLOSED[t.statut]?null:ageDays(t.date);
+  var meta=t.pilote+(t.date?' · créée le '+fr(t.date):'')+(t.temps&&!CLOSED[t.statut]?' · ~'+t.temps+' min':'')+(age!==null&&age>0?' · ouverte depuis '+age+' j':'');
+  return h('button',{class:'card '+(CLS[t.statut]||'todo'),type:'button',onclick:function(ev){openSheet(t,ev.currentTarget);}},
+    h('span',{class:'row'}, t.priorite?h('span',{class:'prio '+t.priorite.toLowerCase(),text:t.priorite}):null,
+      h('span',{class:'pill '+(CLS[t.statut]||'todo'),text:t.statut||'Sans statut'}), t.type?h('span',{class:'meta',text:t.type}):null, t.bloque&&!CLOSED[t.statut]?h('span',{class:'pill no',text:'Bloque la suite'}):null),
+    h('span',{class:'t',text:t.titre}), t.action&&!CLOSED[t.statut]?h('span',{class:'meta',text:t.action}):null, h('span',{class:'meta',text:meta}));
+}
+function fill(box,list,empty){
+  clear(box);
+  if(state==='loading'){ box.appendChild(h('div',{class:'skel'})); box.appendChild(h('div',{class:'skel'})); return; }
+  if(!list.length){ box.appendChild(h('p',{class:'note',text:empty})); return; }
+  list.forEach(function(t){ box.appendChild(card(t)); });
+}
+function render(){
+  var a=$('alert'); clear(a);
+  if(state==='error'||(loadErr&&state==='ok')){
+    a.appendChild(h('p',{class:'note err'}, h('strong',{text:state==='ok'?'Liste non actualisée. ':'Lecture impossible. '}), explain(loadErr)));
+  }
+  $('sync').textContent = state==='ok' ? 'Lu dans Notion le '+new Intl.DateTimeFormat('fr-FR',{timeZone:'Europe/Paris',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}).format(loadedAt) : (state==='error'?'Non connecté':'Connexion à Notion…');
+  var pend=tasks.filter(function(t){return t.statut===PENDING&&!isMine(t)&&!t.reportee;});
+  var q=sorted(pend.filter(function(t){return !isAuth(t);})), au=sorted(pend.filter(isAuth));
+  var pr=function(t){var i=PRIO.indexOf(t.priorite); return i<0?9:i;};
+  var mine=tasks.filter(function(t){return isMine(t)&&!t.reportee;}).sort(function(a,b){return (b.bloque-a.bloque)||(pr(a)-pr(b))||a.titre.localeCompare(b.titre,'fr');});
+  var b=$('badge'); b.hidden=!(q.length+au.length); b.textContent=String(q.length+au.length);
+  var b2=$('badge2'); b2.hidden=!mine.length; b2.textContent=String(mine.length);
+  var none=state==='ok'?'':'S\'affichera une fois Notion joint.';
+  fill($('queue'),q, state==='ok'?'Aucune décision n\'attend Ti Tar.':none);
+  fill($('auth'),au, state==='ok'?'Aucune autorisation en attente.':none);
+  var tot=0,blk=0; mine.forEach(function(t){tot+=t.temps; if(t.bloque) blk+=t.temps;});
+  var ms=$('mine-sum'); clear(ms); if(state==='ok'&&mine.length) ms.appendChild(h('p',{class:'note'},h('strong',{text:mine.length+' action'+(mine.length>1?'s':'')+'. '}),'Temps estimé : '+tot+' min, dont '+blk+' min qui bloquent la suite.'));
+  fill($('later'),sorted(tasks.filter(function(t){return t.reportee&&!CLOSED[t.statut]&&(t.statut===PENDING||isMine(t));})),state==='ok'?'Rien de reporté.':none);
+  fill($('mine'),mine, state==='ok'?'Rien à faire de ton côté.':none);
+  var needle=filters.q.trim().toLowerCase();
+  var list=sorted(tasks.filter(function(t){
+    if(filters.statut&&t.statut!==filters.statut) return false;
+    if(filters.pilote&&t.pilote!==filters.pilote) return false;
+    if(needle&&(t.titre+' '+t.suite+' '+t.type).toLowerCase().indexOf(needle)<0) return false;
+    return true; }));
+  fill($('all'),list, state==='ok'?'Aucune tâche ne correspond à ces filtres.':'Les tâches s\'afficheront une fois Notion joint.');
+  if(more&&state==='ok') $('all').appendChild(h('p',{class:'note',text:'La base contient plus de 300 lignes : seules les 300 premières sont affichées.'}));
+  options($('f-statut'),'Tous les statuts',STATUSES.filter(function(s){return tasks.some(function(t){return t.statut===s;});}),filters.statut);
+  var pil={}; tasks.forEach(function(t){pil[t.pilote]=1;});
+  options($('f-pilote'),'Tous les pilotes',Object.keys(pil).sort(),filters.pilote);
+  summary();
+}
+function options(sel,first,vals,cur){
+  clear(sel); sel.appendChild(h('option',{value:'',text:first}));
+  vals.forEach(function(v){ var o=h('option',{value:v,text:v}); if(v===cur) o.selected=true; sel.appendChild(o); });
+}
+function summary(){
+  var box=$('summary'); clear(box);
+  if(state!=='ok'){ box.appendChild(state==='loading'?h('div',{class:'skel'}):h('p',{class:'note',text:'Le résumé s\'affichera une fois Notion joint.'})); return; }
+  var n=tasks.length, counts={}; STATUSES.forEach(function(s){counts[s]=0;});
+  tasks.forEach(function(t){ if(counts[t.statut]!==undefined) counts[t.statut]++; });
+  var closed=counts['Validé']+counts['Terminé']+counts['Rejeté'];
+  var bar=h('div',{class:'bar',role:'img','aria-label':'Répartition des '+n+' fiches par statut'});
+  STATUSES.forEach(function(s){ if(counts[s]) bar.appendChild(h('span',{class:CLS[s],style:'width:'+(100*counts[s]/n)+'%',title:s+' : '+counts[s]})); });
+  var legend=h('div',{class:'row'}); STATUSES.forEach(function(s){ legend.appendChild(h('span',{class:'pill '+CLS[s],text:s+' '+counts[s]})); });
+  var decided=tasks.filter(function(t){return t.valide;}).length;
+  var p1=h('div',{class:'panel'}, h('h2',{text:n+' fiches, '+closed+' closes, '+counts[PENDING]+' en attente de ta décision'}), n?bar:null, legend,
+    h('p',{class:'meta',text:decided+' fiche'+(decided>1?'s portent':' porte')+' la case « Validation utilisateur » cochée.'}));
+  var by={}; tasks.forEach(function(t){ var o=by[t.pilote]||(by[t.pilote]={open:0,wait:0,p0:0}); if(!CLOSED[t.statut]){ o.open++; if(t.statut===PENDING) o.wait++; if(t.priorite==='P0') o.p0++; } });
+  var tb=h('tbody'); Object.keys(by).sort(function(a,b){return by[b].open-by[a].open||a.localeCompare(b,'fr');}).forEach(function(k){
+    tb.appendChild(h('tr',null,h('td',{text:k}),h('td',{class:'n',text:String(by[k].open)}),h('td',{class:'n',text:String(by[k].wait)}),h('td',{class:'n',text:String(by[k].p0)}))); });
+  var p2=h('div',{class:'panel'}, h('h2',{text:'Charge ouverte par pilote'}),
+    h('table',null,h('thead',null,h('tr',null,h('th',{text:'Pilote'}),h('th',{class:'n',text:'Ouvertes'}),h('th',{class:'n',text:'À valider'}),h('th',{class:'n',text:'P0'}))),tb));
+  box.appendChild(h('div',{class:'list'},p1,p2));
+}
+
+function closeSheet(){ if(writing) return; $('scrim').classList.remove('on'); clear($('sheet')); if(opener&&opener.isConnected) opener.focus(); opener=null; }
+function openSheet(t,from){ opener=from||null; $('scrim').classList.add('on'); detail(t); $('sheet').focus(); }
+function head(t){
+  return [h('div',{class:'row'}, t.priorite?h('span',{class:'prio '+t.priorite.toLowerCase(),text:t.priorite}):null, h('span',{class:'pill '+(CLS[t.statut]||'todo'),text:t.statut||'Sans statut'}), t.type?h('span',{class:'meta',text:t.type}):null),
+          h('h2',{id:'sheet-title',text:t.titre})];
+}
+function kindOf(t){ return isMine(t)?'mine':(t.statut===PENDING?(isAuth(t)?'auth':'decision'):''); }
+function detail(t,message){
+  var s=$('sheet'); clear(s);
+  head(t).forEach(function(e){s.appendChild(e);});
+  if(message) s.appendChild(h('p',{class:'note'+(message.err?' err':''),role:'status'},h('strong',{text:message.title+' '}),message.text));
+  s.appendChild(h('dl',null, h('dt',{text:'Pilote'}),h('dd',{text:t.pilote}), h('dt',{text:'Créée le'}),h('dd',{text:fr(t.date)||'Non renseigné'}),
+    t.temps?h('dt',{text:'Temps estimé'}):null, t.temps?h('dd',{text:t.temps+' min'}):null));
+  if(t.action) s.appendChild(h('p',{class:'note'},h('strong',{text:'Action attendue. '}),t.action));
+  if(t.suite) s.appendChild(h('div',{class:'suite',text:t.suite}));
+  var links=h('div',{class:'row'}, h('a',{href:t.url,target:'_blank',rel:'noopener noreferrer',text:'Ouvrir la fiche dans Notion'}));
+  if(t.source) links.appendChild(h('a',{href:t.source,target:'_blank',rel:'noopener noreferrer',text:'Source : '+t.source.replace(/^https:\/\//,'').slice(0,48)}));
+  s.appendChild(links);
+  var k=kindOf(t); if(k&&(!message||message.err)) form(t,k);
+  s.appendChild(h('button',{type:'button',onclick:closeSheet,text:'Fermer'}));
+}
+function form(t,k){
+  var s=$('sheet'), needD=/Date/.test(t.rep), needT=/Texte/.test(t.rep), box=h('div',{class:'panel'}), err=h('p',{class:'note err',role:'alert',hidden:true}), d=null, x=null;
+  if(needD){ d=h('input',{type:'date',id:'d-date',value:t.repDate||''}); box.appendChild(h('div',null,h('label',{for:'d-date',text:'Choisis une date'}),d)); }
+  if(needT||k==='decision'){ x=h('textarea',{id:'d-text',maxlength:'500'}); x.value=t.repTexte||''; box.appendChild(h('div',null,h('label',{for:'d-text',text:needT?'Ta réponse':'Un mot ou un amendement (facultatif)'}),x)); }
+  var go=function(verb,need){ return function(){
+    var dv=d?d.value:'', tv=x?x.value.replace(/\s+/g,' ').trim().slice(0,500):'';
+    if(need&&((needD&&!dv)||(needT&&!tv))){ err.className='note err'; err.textContent=(needD&&!dv)?'Choisis d\'abord une date.':'Écris d\'abord ta réponse.'; err.hidden=false; return; }
+    run(t,k,verb,{date:dv,text:tv},box); }; };
+  var row=h('div',{class:'actions'});
+  if(k==='mine') row.appendChild(h('button',{type:'button',class:'primary',onclick:go('ok',true),text:'Terminé'}));
+  else { row.appendChild(h('button',{type:'button',class:'primary',onclick:go('ok',true),text:'Valider'})); row.appendChild(h('button',{type:'button',class:'danger',onclick:go('no',false),text:'Ne pas valider'})); }
+  row.appendChild(h('button',{type:'button',onclick:go(t.reportee?'back':'later',false),text:t.reportee?'Remettre dans la file':'Reporter à plus tard'}));
+  box.appendChild(err); box.appendChild(row); s.appendChild(box);
+}
+async function readOne(t){ var p=await query(); var r=p.results.filter(function(x){return x.url===t.url;})[0]; return r?toTask(r):null; }
+async function run(t,k,verb,ans,box){
+  if(writing) return; writing=true;
+  Array.prototype.forEach.call(box.querySelectorAll('button'),function(b){b.disabled=true;});
+  var st=box.querySelector('[role=alert]'); st.className='note'; st.textContent='Écriture dans Notion…'; st.hidden=false;
+  var fin=function(msg,fresh){ writing=false; detail(fresh||t,msg); load(); };
+  var props={}, exp={}, label;
+  if(verb==='ok'){ exp.statut=k==='auth'?'En cours':k==='mine'?'Terminé':'Validé'; props['Statut']=exp.statut; if(k!=='mine') props['Validation utilisateur']='__YES__'; props['Reportée QG']='__NO__'; label=k==='auth'?'Autorisé':k==='mine'?'Terminé':'Validé'; }
+  else if(verb==='no'){ exp.statut='Rejeté'; props['Statut']='Rejeté'; props['Validation utilisateur']='__YES__'; props['Reportée QG']='__NO__'; label='Non validé'; }
+  else if(verb==='later'){ exp.rep=true; props['Reportée QG']='__YES__'; label='Reporté à plus tard'; }
+  else { exp.rep=false; props['Reportée QG']='__NO__'; label='Remis dans la file'; }
+  if(verb==='ok'||verb==='no'){ if(ans.text) props['Réponse Ti Tar QG']=ans.text; if(ans.date){ props['date:Date renseignée QG:start']=ans.date; props['date:Date renseignée QG:is_datetime']=0; } }
+  try{
+    var now=await readOne(t);
+    if(!now) return fin({err:true,title:'Rien n\'a été modifié.',text:'Fiche introuvable (archivée ?).'});
+    if((verb==='ok'||verb==='no')&&(k==='mine'?!!CLOSED[now.statut]:now.statut!==PENDING)) return fin({err:true,title:'Rien n\'a été modifié.',text:'Entre-temps, la fiche est passée à « '+now.statut+' ».'},now);
+    try{ await mcp.callTool(SERVER,U_TOOL,{page_id:t.url,command:'update_properties',properties:props,allow_async:false},{cache:false}); }
+    catch(e){ if(!AMBIGUOUS[e&&e.code]) throw e; }
+    var trace=label+' par Ti Tar le '+parisStamp()+' (heure de Paris) via QG Pilote Direct.'+(ans.date?' Date : '+fr(ans.date)+'.':'')+(ans.text?' Réponse : '+ans.text:'');
+    var traced=true; try{ await mcp.callTool(SERVER,U_TOOL,{page_id:t.url,command:'insert_content',content:trace,position:{type:'end'},allow_async:false},{cache:false}); }catch(e){ traced=false; }
+    var after=await readOne(t).catch(function(){return null;});
+    if(!after) return fin({err:true,title:'Résultat inconnu.',text:'Écriture envoyée mais relecture impossible. Ouvre la fiche dans Notion pour vérifier.'});
+    if((exp.statut&&after.statut!==exp.statut)||(exp.rep!==undefined&&after.reportee!==exp.rep)) return fin({err:true,title:'Non enregistré.',text:'Notion n\'a pas appliqué le changement. Réessaie.'},after);
+    return fin({title:'Enregistré et relu dans Notion.',text:'Statut : « '+after.statut+' »'+(after.reportee?', reportée':'')+(traced?'.':'. La ligne datée n\'a pas pu être ajoutée.')},after);
+  }catch(e){ fin({err:true,title:'Non enregistré.',text:explain(e)}); }
+}
+
+function route(){
+  var v=(location.hash||'').replace('#',''); if(['a-valider','a-faire','taches','resume'].indexOf(v)<0) v='a-valider';
+  ['a-valider','a-faire','taches','resume'].forEach(function(n){ $('v-'+n).classList.toggle('on',n===v); });
+  Array.prototype.forEach.call(document.querySelectorAll('nav a'),function(a){ if(a.getAttribute('data-view')===v) a.setAttribute('aria-current','page'); else a.removeAttribute('aria-current'); });
+}
+window.addEventListener('hashchange',route); route();
+$('refresh').addEventListener('click',load);
+$('f-q').addEventListener('input',function(e){filters.q=e.target.value; render();});
+$('f-statut').addEventListener('change',function(e){filters.statut=e.target.value; render();});
+$('f-pilote').addEventListener('change',function(e){filters.pilote=e.target.value; render();});
+$('scrim').addEventListener('click',function(e){ if(e.target===$('scrim')) closeSheet(); });
+document.addEventListener('keydown',function(e){ if(e.key==='Escape'&&$('scrim').classList.contains('on')) closeSheet(); });
+document.addEventListener('visibilitychange',function(){ if(!document.hidden&&mcp&&state==='ok'&&!writing&&!$('scrim').classList.contains('on')&&loadedAt&&Date.now()-loadedAt.getTime()>60000) load(); });
+
+(async function start(){
+  try{ mcp = window.claude && typeof window.claude.use==='function' ? await window.claude.use('mcp') : null; }catch(e){ mcp=null; }
+  if(!mcp){ state='error'; loadErr={code:'no_mcp'}; render(); return; }
+  load();
+})();
+})();
+</script>
+</body>
+</html>

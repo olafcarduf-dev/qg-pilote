@@ -177,3 +177,33 @@ textarea { font-family: inherit; resize: vertical; }
 }
 #toast.err { border-color: var(--danger); }
 #toast[hidden] { display: none; }
+
+/* ---- v2.4 : reportées, remise en file, résumé enrichi ---- */
+.badge.reportee { color: var(--late); border-color: var(--late); }
+
+button.btn-unpostpone {
+  width: 100%; margin-top: 0.6rem; padding: 0.6rem;
+  background: var(--panel); color: var(--accent); border: 1px solid var(--accent);
+  border-radius: 8px; font-size: 0.85rem; font-weight: 800; cursor: pointer;
+}
+button.btn-unpostpone:disabled { opacity: 0.4; }
+.card-actions .btn-unpostpone { width: auto; flex: 1; margin-top: 0; }
+
+#modal-box input[type="date"] { width: 100%; margin-top: 0.2rem; }
+
+.dist { display: flex; height: 12px; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; margin: 0.5rem 0 0.6rem; }
+.dist .seg { min-width: 2px; }
+.seg-terminé, .seg-termine { background: var(--accent-strong); }
+.seg-validé, .seg-valide { background: #2f855a; }
+.seg-rejeté, .seg-rejete { background: var(--danger); }
+.seg-en-cours { background: #2f6fbf; }
+.seg-en-attente-de-validation { background: var(--late); }
+.seg-bloqué, .seg-bloque { background: #7a5c3e; }
+.seg-à-traiter, .seg-a-traiter { background: var(--muted); }
+
+.pill { font-size: 0.68rem; font-weight: 700; letter-spacing: 0.04em; padding: 0.12rem 0.5rem; border-radius: 999px; border: 1px solid var(--line); }
+
+table.stats { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+table.stats th, table.stats td { text-align: left; padding: 0.3rem 0.4rem; border-bottom: 1px solid var(--line); }
+table.stats th.n, table.stats td.n { text-align: right; font-variant-numeric: tabular-nums; }
+table.stats th { color: var(--muted); font-weight: 600; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; }

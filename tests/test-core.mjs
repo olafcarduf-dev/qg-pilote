@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { QUEUED, sortTasks, filterTasks, groupByPriority, summary, nextAction, formatDue, isLate, isSafeUrl, isClosed, requestFreshSnapshot, AI_PILOTS, myDecisions, awaitingGreenLight, onYou, totalMinutes, actionsFor, closedTasks } from '../core.js';
+import { QUEUED, sortTasks, filterTasks, groupByPriority, summary, nextAction, formatDue, isLate, isSafeUrl, isClosed, requestFreshSnapshot, AI_PILOTS, myDecisions, awaitingGreenLight, onYou, totalMinutes, actionsFor, closedTasks, postponedDecisions, ownerStats } from '../core.js';
 
 let ok = 0;
 const fails = [];
@@ -17,10 +17,14 @@ const t = (o) => ({
   kind: o.kind ?? 'Action à faire',
   due: o.due ?? null,
   source: null,
-  note: null,
+  note: o.note ?? null,
   expected: o.expected ?? null,
+  answerKind: o.answerKind ?? null,
+  answerText: o.answerText ?? null,
+  answerDate: o.answerDate ?? null,
   timeMin: o.timeMin ?? null,
-  blocking: o.blocking ?? false
+  blocking: o.blocking ?? false,
+  postponed: o.postponed ?? false
 });
 
 await atest('tri : la file passe avant tout, puis priorité, puis échéance', async () => {
@@ -55,6 +59,15 @@ await atest('filtre : recherche texte sur titre, pilote et type', async () => {
   assert.strictEqual(filterTasks(tasks, { q: 'claude' }).length, 1);
   assert.strictEqual(filterTasks(tasks, { q: 'apprentissage' }).length, 1);
   assert.strictEqual(filterTasks(tasks, { q: 'zzz' }).length, 0);
+});
+
+await atest('filtre : la recherche atteint aussi la suite et l\u2019action attendue', async () => {
+  const tasks = [
+    t({ title: 'Décision RH', note: 'Sonder Anna sur le contrat.' }),
+    t({ title: 'Tâche muette', expected: 'Répondre par oui ou non.' })
+  ];
+  assert.strictEqual(filterTasks(tasks, { q: 'anna' }).length, 1);
+  assert.strictEqual(filterTasks(tasks, { q: 'oui ou non' }).length, 1);
 });
 
 await atest('filtre : statut, pilote et priorité combinés', async () => {
@@ -177,11 +190,24 @@ await atest('Moi : décisions de Ti Tar séparées du feu vert IA', () => {
     t({ title: 'Décision non attribuée', status: QUEUED, owner: 'Non attribué' }),
     t({ title: 'Sprint de Vibe', status: QUEUED, owner: 'Vibe' }),
     t({ title: 'Sprint de Claude', status: QUEUED, owner: 'Claude' }),
+    t({ title: 'Décision reportée', status: QUEUED, owner: 'Ti Tar', postponed: true }),
+    t({ title: 'Feu vert reporté', status: QUEUED, owner: 'Vibe', postponed: true }),
     t({ title: 'Tâche en cours', status: 'En cours', owner: 'Vibe' })
   ];
   assert.deepEqual(myDecisions(tasks).map(x => x.title), ['Règles d\u2019arrêt', 'Décision non attribuée']);
   assert.deepEqual(awaitingGreenLight(tasks).map(x => x.title), ['Sprint de Vibe', 'Sprint de Claude']);
   assert.ok(AI_PILOTS.includes('Python') && AI_PILOTS.includes('ChatGPT'));
+});
+
+await atest('reportées : postponedDecisions isole les décisions reportées, nextAction les ignore', () => {
+  const tasks = [
+    t({ id: 'p1', title: 'Reportée P1', status: QUEUED, owner: 'Ti Tar', postponed: true, priority: 'Haute' }),
+    t({ id: 'p2', title: 'Reportée basse', status: QUEUED, owner: 'Ti Tar', postponed: true }),
+    t({ id: 'q1', title: 'En file normale', status: QUEUED, owner: 'Ti Tar', priority: 'Basse' }),
+    t({ id: 'x1', title: 'Pas une décision', status: 'En cours', postponed: true })
+  ];
+  assert.deepEqual(postponedDecisions(tasks).map(x => x.id), ['p1', 'p2']);
+  assert.strictEqual(nextAction(tasks).id, 'q1', 'la prochaine action vient de la file non reportée');
 });
 
 await atest('Moi : onYou = pilotées par Ti Tar ou bloquantes, jamais closes ni en file', () => {
@@ -205,12 +231,13 @@ await atest('totalMinutes : ignore les valeurs non numériques et les absentes',
 // ---- Boutons selon le statut ----
 await atest('actionsFor : la file décide, les closes s\u2019annulent, le reste se termine', () => {
   const queued = actionsFor(t({ status: QUEUED }));
-  assert.deepEqual(queued, { validate: true, reject: true, postpone: true, finish: false, undo: false });
+  assert.deepEqual(queued, { validate: true, reject: true, postpone: true, unpostpone: false, finish: false, undo: false });
+  assert.strictEqual(actionsFor(t({ status: QUEUED, postponed: true })).unpostpone, true, 'une décision reportée se remet en file');
   for (const status of ['Terminé', 'Validé', 'Rejeté']) {
-    assert.deepEqual(actionsFor(t({ status })), { validate: false, reject: false, postpone: false, finish: false, undo: true }, `close ${status}`);
+    assert.deepEqual(actionsFor(t({ status })), { validate: false, reject: false, postpone: false, unpostpone: false, finish: false, undo: true }, `close ${status}`);
   }
   for (const status of ['À traiter', 'En cours', 'Bloqué']) {
-    assert.deepEqual(actionsFor(t({ status })), { validate: false, reject: false, postpone: false, finish: true, undo: false }, `ouverte ${status}`);
+    assert.deepEqual(actionsFor(t({ status })), { validate: false, reject: false, postpone: false, unpostpone: false, finish: true, undo: false }, `ouverte ${status}`);
   }
 });
 
@@ -224,6 +251,25 @@ await atest('closedTasks : uniquement les closes, Terminé puis Validé puis Rej
   ];
   assert.deepEqual(closedTasks(tasks).map(x => x.title), ['Terminée A', 'Terminée B', 'Validée', 'Rejetée']);
   assert.deepEqual(closedTasks([tasks[1]]), []);
+});
+
+await atest('ownerStats : charge ouverte par pilote, hors file et closes, triée par charge', () => {
+  const tasks = [
+    t({ title: 'A1', status: 'En cours', owner: 'Vibe', priority: 'Haute', timeMin: 20 }),
+    t({ title: 'A2', status: 'À traiter', owner: 'Vibe', timeMin: 10 }),
+    t({ title: 'B1', status: 'En cours', owner: 'Ti Tar' }),
+    t({ title: 'Q1', status: QUEUED, owner: 'Vibe' }),
+    t({ title: 'C1', status: 'Terminé', owner: 'Vibe' })
+  ];
+  const stats = ownerStats(tasks);
+  assert.strictEqual(stats.length, 2, 'file et closes ignorées');
+  assert.strictEqual(stats[0].owner, 'Vibe');
+  assert.strictEqual(stats[0].open, 2);
+  assert.strictEqual(stats[0].high, 1);
+  assert.strictEqual(stats[0].minutes, 30);
+  assert.strictEqual(stats[1].owner, 'Ti Tar');
+  assert.strictEqual(stats[1].minutes, 0);
+  assert.deepEqual(ownerStats([]), []);
 });
 console.log(fails.length ? `\n${fails.length} ÉCHEC(S)` : `\n${ok} test(s) ok, 0 échec(s)`);
 process.exitCode = fails.length ? 1 : 0;
