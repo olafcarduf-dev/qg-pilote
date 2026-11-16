@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { QUEUED, sortTasks, filterTasks, groupByPriority, summary, nextAction, formatDue, isLate, isSafeUrl } from '../core.js';
+import { QUEUED, sortTasks, filterTasks, groupByPriority, summary, nextAction, formatDue, isLate, isSafeUrl, requestFreshSnapshot } from '../core.js';
 
 let ok = 0;
 const fails = [];
@@ -133,5 +133,35 @@ await atest('isSafeUrl : accepte http/https, refuse tout le reste', async () => 
   assert.ok(!isSafeUrl('pas une url'), 'texte libre refusé');
 });
 
+await atest('décisions validées et rejetées distinctes des tâches terminées', () => {
+  const tasks = ['Validé', 'Terminé', 'Rejeté'].map(status => t({ status, due: '2026-11-01' }));
+  assert.equal(summary(tasks).done, 1);
+  assert.equal(summary(tasks).approved, 1);
+  assert.equal(summary(tasks).rejected, 1);
+  assert.equal(Object.values(groupByPriority(tasks)).flat().length, 0);
+  assert.ok(tasks.every(task => !isLate(task, '2026-11-16')));
+});
+await atest('actualisation : un dispatch et une génération strictement plus récente', async () => {
+  const events = [];
+  const snapshots = ['2026-11-16T00:00:00Z', '2026-11-16T00:00:00Z', '2026-11-16T00:00:01Z'];
+  const fresh = await requestFreshSnapshot({
+    dispatch: async name => events.push(name),
+    fetchSnapshot: async () => ({ generated_at: snapshots.shift() }),
+    sleep: async () => {},
+    pollMs: 1,
+    timeout: 100
+  });
+  assert.deepEqual(events, ['qg-sync']);
+  assert.equal(fresh.generated_at, '2026-11-16T00:00:01Z');
+});
+await atest('actualisation : aucun faux succès à expiration', async () => {
+  await assert.rejects(requestFreshSnapshot({
+    dispatch: async () => {},
+    fetchSnapshot: async () => ({ generated_at: '2026-11-16T00:00:00Z' }),
+    sleep: async () => {},
+    pollMs: 1,
+    timeout: 0
+  }), /Aucun snapshot/);
+});
 console.log(fails.length ? `\n${fails.length} ÉCHEC(S)` : `\n${ok} test(s) ok, 0 échec(s)`);
 process.exitCode = fails.length ? 1 : 0;

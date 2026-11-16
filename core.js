@@ -4,12 +4,14 @@
 
 export const QUEUED = 'En attente de validation';
 
+export const isClosed = (task) => ['Terminé', 'Validé', 'Rejeté'].includes(task.status);
+
 const PRIO_RANK = { Haute: 0, Normale: 1, Basse: 2 };
 
 function statusRank(t) {
   if (t.status === QUEUED) return 0;
   if (t.status === 'En cours') return 1;
-  if (t.status === 'Terminé') return 3;
+  if (isClosed(t)) return 3;
   return 2; // À traiter, Bloqué, autres
 }
 
@@ -40,7 +42,7 @@ export function filterTasks(tasks, f = {}) {
 export function groupByPriority(tasks) {
   const groups = { Haute: [], Normale: [], Basse: [] };
   for (const t of tasks) {
-    if (t.status === 'Terminé') continue;
+    if (isClosed(t)) continue;
     (groups[t.priority] ?? (groups[t.priority] = [])).push(t);
   }
   for (const k of Object.keys(groups)) groups[k] = sortTasks(groups[k]);
@@ -55,6 +57,8 @@ export function summary(tasks) {
     queued: counts[QUEUED] || 0,
     inProgress: counts['En cours'] || 0,
     done: counts['Terminé'] || 0,
+    approved: counts['Validé'] || 0,
+    rejected: counts['Rejeté'] || 0,
     blocked: counts['Bloqué'] || 0,
     pct: tasks.length ? Math.round(((counts['Terminé'] || 0) / tasks.length) * 100) : 0
   };
@@ -72,7 +76,7 @@ export function formatDue(due) {
 }
 
 export function isLate(t, today = new Date().toISOString().slice(0, 10)) {
-  return !!t.due && t.due.slice(0, 10) < today && t.status !== 'Terminé';
+  return !!t.due && t.due.slice(0, 10) < today && !isClosed(t);
 }
 
 // Lien sûr : uniquement http(s). Bloque javascript:, data: et cie, même sur une valeur échappée.
@@ -84,4 +88,17 @@ export function isSafeUrl(u) {
   } catch {
     return false;
   }
+}
+
+export async function requestFreshSnapshot({ dispatch, fetchSnapshot, sleep, pollMs, timeout }) {
+  const before = Date.parse((await fetchSnapshot()).generated_at);
+  await dispatch('qg-sync');
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    await sleep(Math.min(pollMs, deadline - Date.now()));
+    const snapshot = await fetchSnapshot();
+    const generated = Date.parse(snapshot.generated_at);
+    if (Number.isFinite(generated) && (!Number.isFinite(before) || generated > before)) return snapshot;
+  }
+  throw new Error('Aucun snapshot Notion plus récent. Vérifie le dernier run GitHub Actions.');
 }
