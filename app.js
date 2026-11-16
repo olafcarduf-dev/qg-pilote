@@ -1,5 +1,5 @@
 // QG Pilote v2 — couche DOM + API GitHub. La logique métier vit dans core.js (testé sous Node).
-import { QUEUED, filterTasks, groupByPriority, summary, nextAction, formatDue, isLate } from './core.js';
+import { QUEUED, filterTasks, groupByPriority, summary, nextAction, formatDue, isLate, isClosed, safeLink, requestFreshSnapshot } from './core.js';
 
 const DATA_REPO = 'olafcarduf-dev/qg-pilote-data';
 const API = 'https://api.github.com';
@@ -52,7 +52,7 @@ async function gh(path, init = {}) {
 }
 
 async function fetchSnapshot() {
-  const res = await gh(`/repos/${DATA_REPO}/contents/snapshot.json`, { headers: { Accept: 'application/vnd.github.raw' } });
+  const res = await gh(`/repos/${DATA_REPO}/contents/snapshot.json`, { headers: { Accept: 'application/vnd.github.raw' }, cache: 'no-store' });
   const snap = JSON.parse(await res.text());
   localStorage.setItem(SNAP_KEY, JSON.stringify(snap));
   state.snapshot = snap;
@@ -69,7 +69,7 @@ async function dispatch(eventType, payload = {}) {
 // ---- Rendu ----
 function card(t, opts = {}) {
   const el = document.createElement('article');
-  el.className = 'card' + (t.status === 'Terminé' ? ' done' : '') + (isLate(t) ? ' late' : '') + (opts.next ? ' next' : '');
+  el.className = 'card' + (isClosed(t) ? ' done' : '') + (isLate(t) ? ' late' : '') + (opts.next ? ' next' : '');
   el.innerHTML = `
     <div class="card-top"><span class="prio ${esc(t.priority.toLowerCase())}">${esc(t.priority)}</span><span class="kind">${esc(t.kind)}</span></div>
     <h3>${esc(t.title)}</h3>
@@ -127,7 +127,7 @@ function renderSummary() {
   const head = document.createElement('article');
   head.className = 'card';
   head.innerHTML = `
-    <div class="meta"><span class="status">${s.total}</span> tâches · <span class="status">${s.queued}</span> à valider · <span class="status">${s.inProgress}</span> en cours · <span class="status">${s.done}</span> terminées${s.blocked ? ` · <span class="status">${s.blocked}</span> bloquées` : ''}</div>
+    <div class="meta"><span class="status">${s.total}</span> tâches · <span class="status">${s.queued}</span> à valider · <span class="status">${s.inProgress}</span> en cours · <span class="status">${s.done}</span> terminées · <span class="status">${s.approved}</span> validées · <span class="status">${s.rejected}</span> rejetées${s.blocked ? ` · <span class="status">${s.blocked}</span> bloquées` : ''}</div>
     <div class="progress"><div style="width:${s.pct}%"></div></div>
     <div class="meta">${s.pct}% terminé · sync ${esc(fmtSync(state.snapshot.generated_at))}</div>`;
   el.append(head);
@@ -159,7 +159,7 @@ function openModal(id) {
     <h3>${esc(t.title)}</h3>
     <div class="meta"><span class="status">${esc(t.status)}</span> · ${esc(t.owner)}${t.due ? ` · ${formatDue(t.due)}` : ''}</div>
     ${t.note ? `<div class="note">${esc(t.note)}</div>` : ''}
-    ${t.source ? `<a href="${esc(t.source)}" target="_blank" rel="noopener">Ouvrir dans Notion ↗</a>` : ''}
+    ${safeLink(t.source) ? `<a href="${esc(safeLink(t.source))}" target="_blank" rel="noopener noreferrer">Ouvrir la source ↗</a>` : ''}
     ${t.status === QUEUED ? '<button class="btn-validate">Valider</button>' : ''}`;
   $('#modal').hidden = false;
   box.querySelector('.close').addEventListener('click', () => { $('#modal').hidden = true; });
@@ -177,22 +177,17 @@ async function validate(t, btn) {
   btn.disabled = true;
   btn.textContent = 'Envoi…';
   try {
+    const before = Date.parse(state.snapshot?.generated_at);
     await dispatch('qg-validate', { pageId: t.id });
     btn.textContent = 'Validation en cours…';
-    const before = state.snapshot?.generated_at;
     const deadline = Date.now() + POLL_MAX_MS;
     while (Date.now() < deadline) {
       await sleep(POLL_MS);
       const snap = await fetchSnapshot();
       const task = snap.tasks.find((x) => x.id === t.id);
-      if (snap.generated_at !== before && task && task.status !== QUEUED) {
+      if (Date.parse(snap.generated_at) > before && task?.status === 'Validé') {
         render();
         showToast(`« ${t.title} » → ${task.status}`);
-        return;
-      }
-      if (snap.generated_at !== before && !task) {
-        render();
-        showToast('Snapshot actualisé.');
         return;
       }
     }
@@ -205,17 +200,19 @@ async function validate(t, btn) {
 }
 
 // ---- Synchro ----
-async function refresh() {
+async function refresh({ force = false } = {}) {
   const btn = $('#btn-refresh');
   btn.disabled = true;
   setSync('sync…');
   try {
     if (!token()) { setSync('token manquant', true); switchTab('settings'); return; }
-    const snap = await fetchSnapshot();
+    const snap = force
+      ? await requestFreshSnapshot({ dispatch, fetchSnapshot, sleep, pollMs: POLL_MS, timeout: POLL_MAX_MS })
+      : await fetchSnapshot();
     setSync(`sync ${fmtSync(snap.generated_at)}`);
     render();
   } catch (e) {
-    setSync('erreur sync', true);
+    setSync(`Erreur de synchro · dernier snapshot : ${fmtSync(state.snapshot?.generated_at)}`, true);
     showToast(e.message, true);
   } finally {
     btn.disabled = false;
@@ -232,7 +229,7 @@ function switchTab(tab) {
 for (const b of document.querySelectorAll('nav button')) {
   b.addEventListener('click', () => switchTab(b.dataset.tab));
 }
-$('#btn-refresh').addEventListener('click', refresh);
+$('#btn-refresh').addEventListener('click', () => refresh({ force: true }));
 $('#search').addEventListener('input', (e) => { state.q = e.target.value; renderTasks(); });
 $('#filter-status').addEventListener('change', (e) => { state.status = e.target.value; renderTasks(); });
 $('#filter-priority').addEventListener('change', (e) => { state.priority = e.target.value; renderTasks(); });
@@ -247,7 +244,11 @@ $('#btn-save-token').addEventListener('click', () => {
 });
 $('#btn-clear-token').addEventListener('click', () => {
   localStorage.removeItem(TOKEN_KEY);
-  $('#token-msg').textContent = 'Token effacé.';
+  $('#token-msg').textContent = 'Token et cache effacés.';
+  localStorage.removeItem(SNAP_KEY);
+  state.snapshot = null;
+  setSync('Connexion GitHub à configurer.');
+  render();
 });
 $('#btn-test-token').addEventListener('click', async () => {
   const v = $('#token-input').value.trim() || token();
