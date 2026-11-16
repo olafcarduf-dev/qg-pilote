@@ -50,7 +50,7 @@ nav {
 nav button {
   flex: 1; background: var(--panel); color: var(--muted);
   border: 1px solid var(--line); border-radius: 8px;
-  padding: 0.45rem 0.2rem; font-size: 0.8rem; cursor: pointer;
+  padding: 0.45rem 0.1rem; font-size: 0.72rem; cursor: pointer; white-space: nowrap;
 }
 nav button.active { color: var(--bg); background: var(--accent-strong); border-color: var(--accent-strong); font-weight: 700; }
 
@@ -89,28 +89,44 @@ main { padding: 0 1rem 2rem; }
 .badge.time { color: var(--accent); }
 .badge.block { color: var(--late); border-color: var(--late); }
 
+/* Boutons d'action : pleins en solo, côte à côte dans .card-actions */
 button.btn-validate, button.btn-finish {
   width: 100%; margin-top: 0.6rem; padding: 0.65rem;
   border: none; border-radius: 8px; font-size: 0.95rem; font-weight: 800; cursor: pointer;
 }
-button.btn-validate {
-  background: var(--accent-strong); color: #04120a;
-}
-button.btn-finish {
-  background: var(--panel); color: var(--accent); border: 1px solid var(--line);
-}
+button.btn-validate { background: var(--accent-strong); color: #04120a; }
+button.btn-finish { background: var(--panel); color: var(--accent); border: 1px solid var(--line); }
 button.btn-validate:disabled, button.btn-finish:disabled { background: var(--panel); color: var(--muted); border: 1px solid var(--line); }
+
+button.btn-reject {
+  background: transparent; color: var(--danger); border: 1px solid var(--danger);
+  border-radius: 8px; font-size: 0.9rem; font-weight: 800; cursor: pointer;
+}
+button.btn-postpone {
+  background: var(--panel); color: var(--muted); border: 1px solid var(--line);
+  border-radius: 8px; font-size: 0.9rem; font-weight: 800; cursor: pointer;
+}
+button.btn-undo {
+  width: 100%; margin-top: 0.6rem; padding: 0.65rem;
+  background: transparent; color: var(--late); border: 1px dashed var(--late);
+  border-radius: 8px; font-size: 0.9rem; font-weight: 800; cursor: pointer;
+}
+button.btn-reject:disabled, button.btn-postpone:disabled, button.btn-undo:disabled { opacity: 0.4; }
+
+.card-actions { display: flex; gap: 0.4rem; margin-top: 0.6rem; }
+.card-actions button { flex: 1; padding: 0.6rem 0.2rem; margin-top: 0; width: auto; font-size: 0.82rem; }
 
 .toolbar { display: flex; gap: 0.4rem; margin-bottom: 0.7rem; }
 .toolbar input { flex: 2; }
 .toolbar select { flex: 1; min-width: 0; }
 
-input, select {
+input, select, textarea {
   background: var(--bg); color: var(--text);
   border: 1px solid var(--line); border-radius: 8px;
   padding: 0.55rem 0.6rem; font-size: 0.9rem;
 }
-input:focus, select:focus { outline: 1px solid var(--accent); }
+input:focus, select:focus, textarea:focus { outline: 1px solid var(--accent); }
+textarea { font-family: inherit; resize: vertical; }
 
 #tab-settings input { width: 100%; margin: 0.4rem 0; }
 #tab-settings .row { display: flex; gap: 0.5rem; margin-top: 0.4rem; }
@@ -149,6 +165,9 @@ input:focus, select:focus { outline: 1px solid var(--accent); }
 #modal-box .expected { color: var(--text); }
 #modal-box a { color: var(--accent); word-break: break-all; }
 #modal-box .close { float: right; background: none; border: none; color: var(--muted); font-size: 1.2rem; cursor: pointer; }
+#modal-box textarea { width: 100%; margin: 0.6rem 0 0.2rem; }
+#modal-box label { display: block; margin-top: 0.6rem; }
+#modal-box input[type="date"] { width: 100%; margin-top: 0.2rem; }
 
 #toast {
   position: fixed; left: 50%; bottom: 1.2rem; transform: translateX(-50%);

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { QUEUED, sortTasks, filterTasks, groupByPriority, summary, nextAction, formatDue, isLate, isSafeUrl, requestFreshSnapshot, AI_PILOTS, myDecisions, awaitingGreenLight, onYou, totalMinutes } from '../core.js';
+import { QUEUED, sortTasks, filterTasks, groupByPriority, summary, nextAction, formatDue, isLate, isSafeUrl, isClosed, requestFreshSnapshot, AI_PILOTS, myDecisions, awaitingGreenLight, onYou, totalMinutes, actionsFor, closedTasks } from '../core.js';
 
 let ok = 0;
 const fails = [];
@@ -66,9 +66,10 @@ await atest('filtre : statut, pilote et priorité combinés', async () => {
   assert.strictEqual(filterTasks(tasks, { status: QUEUED, owner: 'Ti Tar', priority: 'Haute' }).length, 1);
 });
 
-await atest('groupByPriority : exclut les tâches Terminées et trie chaque groupe', async () => {
+await atest('groupByPriority : exclut les tâches closes et trie chaque groupe', async () => {
   const groups = groupByPriority([
     t({ title: 'fait', status: 'Terminé', priority: 'Haute' }),
+    t({ title: 'validée', status: 'Validé', priority: 'Haute' }),
     t({ title: 'P2', priority: 'Basse', status: 'À traiter' }),
     t({ title: 'P0', priority: 'Haute', status: 'En cours' })
   ]);
@@ -76,6 +77,7 @@ await atest('groupByPriority : exclut les tâches Terminées et trie chaque grou
   assert.ok(groups.Haute.length === 1 && groups.Haute[0].title === 'P0');
   assert.ok(groups.Basse.length === 1);
   assert.ok(!JSON.stringify(groups).includes('fait'));
+  assert.ok(!JSON.stringify(groups).includes('validée'));
 });
 
 await atest('summary : compteurs et pourcentage de tâches terminées', async () => {
@@ -117,10 +119,11 @@ await atest('formatDue : YYYY-MM-DD → JJ/MM/AAAA, gère les vides', async () =
   assert.strictEqual(formatDue('n/importe'), 'n/importe');
 });
 
-await atest('isLate : en retard seulement si échéance passée et non terminée', async () => {
+await atest('isLate : en retard seulement si échéance passée et non close', async () => {
   const today = '2026-11-16';
   assert.ok(isLate(t({ due: '2026-11-15', status: 'En cours' }), today));
   assert.ok(!isLate(t({ due: '2026-11-15', status: 'Terminé' }), today));
+  assert.ok(!isLate(t({ due: '2026-11-15', status: 'Validé' }), today));
   assert.ok(!isLate(t({ due: '2026-11-17', status: 'En cours' }), today));
   assert.ok(!isLate(t({ due: null, status: 'En cours' }), today));
 });
@@ -197,6 +200,30 @@ await atest('Moi : onYou = pilotées par Ti Tar ou bloquantes, jamais closes ni 
 await atest('totalMinutes : ignore les valeurs non numériques et les absentes', () => {
   assert.equal(totalMinutes([t({ timeMin: 10 }), t({ timeMin: 5 }), t({}), t({ timeMin: null })]), 15);
   assert.equal(totalMinutes([]), 0);
+});
+
+// ---- Boutons selon le statut ----
+await atest('actionsFor : la file décide, les closes s\u2019annulent, le reste se termine', () => {
+  const queued = actionsFor(t({ status: QUEUED }));
+  assert.deepEqual(queued, { validate: true, reject: true, postpone: true, finish: false, undo: false });
+  for (const status of ['Terminé', 'Validé', 'Rejeté']) {
+    assert.deepEqual(actionsFor(t({ status })), { validate: false, reject: false, postpone: false, finish: false, undo: true }, `close ${status}`);
+  }
+  for (const status of ['À traiter', 'En cours', 'Bloqué']) {
+    assert.deepEqual(actionsFor(t({ status })), { validate: false, reject: false, postpone: false, finish: true, undo: false }, `ouverte ${status}`);
+  }
+});
+
+await atest('closedTasks : uniquement les closes, Terminé puis Validé puis Rejeté', () => {
+  const tasks = [
+    t({ title: 'Rejetée', status: 'Rejeté', priority: 'Haute' }),
+    t({ title: 'À traiter', status: 'À traiter' }),
+    t({ title: 'Validée', status: 'Validé' }),
+    t({ title: 'Terminée B', status: 'Terminé', priority: 'Basse' }),
+    t({ title: 'Terminée A', status: 'Terminé', priority: 'Haute' })
+  ];
+  assert.deepEqual(closedTasks(tasks).map(x => x.title), ['Terminée A', 'Terminée B', 'Validée', 'Rejetée']);
+  assert.deepEqual(closedTasks([tasks[1]]), []);
 });
 console.log(fails.length ? `\n${fails.length} ÉCHEC(S)` : `\n${ok} test(s) ok, 0 échec(s)`);
 process.exitCode = fails.length ? 1 : 0;
