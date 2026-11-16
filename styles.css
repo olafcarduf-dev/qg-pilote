@@ -116,6 +116,18 @@ button.btn-reject:disabled, button.btn-postpone:disabled, button.btn-undo:disabl
 .card-actions { display: flex; gap: 0.4rem; margin-top: 0.6rem; }
 .card-actions button { flex: 1; padding: 0.6rem 0.2rem; margin-top: 0; width: auto; font-size: 0.82rem; }
 
+/* Gestion v2.6 : Modifier / Supprimer / Restaurer, discrets sous les actions principales */
+.mgmt-actions { display: flex; gap: 0.4rem; margin-top: 0.45rem; }
+.mgmt-actions button {
+  flex: 1; padding: 0.45rem 0.2rem; margin-top: 0; width: auto;
+  font-size: 0.78rem; font-weight: 800; cursor: pointer;
+  background: var(--panel); color: var(--muted);
+  border: 1px solid var(--line); border-radius: 8px;
+}
+.mgmt-actions button:active { color: var(--text); border-color: var(--text); }
+.mgmt-actions .btn-archive { background: transparent; color: var(--danger); border-color: var(--danger); }
+.mgmt-actions .btn-restore { background: transparent; color: var(--accent); border-color: var(--accent); }
+
 .toolbar { display: flex; gap: 0.4rem; margin-bottom: 0.7rem; }
 .toolbar input { flex: 2; }
 .toolbar select { flex: 1; min-width: 0; }

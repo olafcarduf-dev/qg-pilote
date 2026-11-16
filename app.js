@@ -1,5 +1,5 @@
 // QG Pilote v2 — couche DOM + API GitHub. La logique métier vit dans core.js (testé sous Node).
-import { QUEUED, filterTasks, groupByPriority, summary, nextAction, formatDue, isLate, isSafeUrl, isClosed, sortTasks, requestFreshSnapshot, myDecisions, awaitingGreenLight, onYou, totalMinutes, closedTasks, postponedDecisions, ownerStats, actionsFor, toCsv } from './core.js';
+import { QUEUED, filterTasks, groupByPriority, summary, nextAction, formatDue, isLate, isSafeUrl, isClosed, isArchived, archivedTasks, sortTasks, requestFreshSnapshot, myDecisions, awaitingGreenLight, onYou, totalMinutes, closedTasks, postponedDecisions, ownerStats, actionsFor, toCsv } from './core.js';
 
 const DATA_REPO = 'olafcarduf-dev/qg-pilote-data';
 const API = 'https://api.github.com';
@@ -96,7 +96,13 @@ function card(t, opts = {}) {
       </div>` : ''}
     ${acts.unpostpone ? '<button class="btn-unpostpone">Remettre dans la file</button>' : ''}
     ${acts.finish ? '<button class="btn-finish">Terminer</button>' : ''}
-    ${acts.undo ? '<button class="btn-undo">Annuler</button>' : ''}`;
+    ${acts.undo ? '<button class="btn-undo">Annuler</button>' : ''}
+    ${(acts.edit || acts.archive || acts.restore) ? `
+      <div class="mgmt-actions">
+        ${acts.edit ? '<button class="btn-edit" title="Modifier titre, échéance, priorité, statut">Modifier</button>' : ''}
+        ${acts.archive ? '<button class="btn-archive" title="Supprimer de la vue (récupérable dans Terminées → Supprimées)">Supprimer</button>' : ''}
+        ${acts.restore ? '<button class="btn-restore" title="Remettre cette tâche en circulation">Restaurer</button>' : ''}
+      </div>` : ''}`;
   el.addEventListener('click', (e) => { if (!e.target.closest('button')) openModal(t.id); });
   const wire = (sel, fn) => {
     const b = el.querySelector(sel);
@@ -108,6 +114,9 @@ function card(t, opts = {}) {
   wire('.btn-unpostpone', (t2, b) => unpostpone(t2, b));
   wire('.btn-finish', (t2, b) => finish(t2, b));
   wire('.btn-undo', (t2, b) => undo(t2, b));
+  wire('.btn-edit', () => openFormModal('edit', t));
+  wire('.btn-archive', (t2, b) => archiveTask(t2, b));
+  wire('.btn-restore', (t2, b) => restoreTask(t2, b));
   return el;
 }
 
@@ -190,12 +199,25 @@ function renderClosed() {
     return;
   }
   const closed = closedTasks(tasks());
-  if (!closed.length) {
+  const archived = archivedTasks(tasks());
+  if (!closed.length && !archived.length) {
     const p = document.createElement('p');
     p.className = 'empty';
     p.textContent = 'Aucune tâche close pour l\u2019instant.';
     el.append(p);
     return;
+  }
+  // Section « Supprimées » : tâches archivées, gardées au cas où. Récupérables via « Restaurer ».
+  if (archived.length) {
+    const head = document.createElement('div');
+    head.className = 'group-title';
+    head.innerHTML = `<h2>🗑 Supprimées (récupérables)</h2><span>${archived.length}</span>`;
+    el.append(head);
+    const hint = document.createElement('p');
+    hint.className = 'empty';
+    hint.textContent = 'Tâches retirées des vues mais jamais détruites : Restaurer les remet en circulation.';
+    el.append(hint);
+    for (const t of archived) el.append(card(t));
   }
   for (const [status, label] of [['Terminé', 'Terminées'], ['Validé', 'Validées'], ['Rejeté', 'Rejetées']]) {
     const list = closed.filter((t) => t.status === status);
@@ -373,6 +395,111 @@ async function writeAndWait(t, eventType, btn, label, isDone, failMsg, payload =
 // les propriétés « Réponse Ti Tar QG » et « Date renseignée QG » de la fiche Notion.
 const answerPayload = (text, answerDate) => ({ ...(text ? { text } : {}), ...(answerDate ? { answerDate } : {}) });
 
+// ---- Écriture sans tâche source (ajout) : dispatch → Action GitHub → Notion → snapshot frais ----
+async function sendAndWait(eventType, payload, okMsg, failMsg, isDoneSnap, btn) {
+  if (!token()) { switchTab('settings'); showToast('Ajoute ton token dans Réglages.', true); return; }
+  const old = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Envoi…';
+  try {
+    const before = Date.parse(state.snapshot?.generated_at);
+    await dispatch(eventType, payload);
+    btn.textContent = 'En cours…';
+    const deadline = Date.now() + POLL_MAX_MS;
+    while (Date.now() < deadline) {
+      await sleep(POLL_MS);
+      const snap = await fetchSnapshot();
+      if (Date.parse(snap.generated_at) > before && isDoneSnap(snap)) {
+        showToast(okMsg);
+        return;
+      }
+    }
+    showToast(failMsg, true);
+  } catch (e) {
+    showToast(`Échec : ${e.message}`, true);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = old;
+    render();
+  }
+}
+
+// ---- CRUD v2.6 : ajouter, modifier, supprimer (= archiver, réversible), restaurer ----
+const FORM_PRIORITIES = ['Haute', 'Normale', 'Basse'];
+const FORM_STATUSES = ['À traiter', 'En cours', 'Bloqué', QUEUED, 'Terminé', 'Validé', 'Rejeté'];
+const FORM_OWNERS = ['Ti Tar', 'Vibe', 'ChatGPT', 'Claude', 'Python'];
+
+const addTask = (f, btn) => sendAndWait('qg-add',
+  { title: f.title, due: f.due || '', priority: f.priority, status: f.status, owner: f.owner },
+  `« ${f.title} » ajoutée.`,
+  'Pas de confirmation après 3 min. Causes fréquentes : titre vide ou > 200 caractères, valeur de statut/priorité/pilote inconnue. Détail dans add-log.txt du dépôt data.',
+  (snap) => snap.tasks.some((x) => x.title === f.title && !x.archived),
+  btn);
+
+const editTask = (t, f, btn) => sendAndWait('qg-update',
+  { pageId: t.id, ...(f.title !== t.title ? { title: f.title } : {}), ...(f.due !== (t.due || '') ? { due: f.due || '', ...(!f.due ? { clearDue: 'true' } : {}) } : {}), ...(f.priority !== t.priority ? { priority: f.priority } : {}), ...(f.status !== t.status ? { status: f.status } : {}) },
+  `« ${f.title} » mise à jour.`,
+  'Pas de confirmation après 3 min. Détail dans update-log.txt du dépôt data.',
+  (snap) => {
+    const x = snap.tasks.find((y) => y.id === t.id);
+    return x && x.title === f.title && (x.due || '') === (f.due || '') && x.status === f.status && x.priority === f.priority;
+  },
+  btn);
+
+const archiveTask = (t, btn) => sendAndWait('qg-update',
+  { pageId: t.id, archived: 'true' },
+  `« ${t.title} » supprimée (récupérable dans Terminées → Supprimées).`,
+  'Pas de confirmation après 3 min. Détail dans update-log.txt du dépôt data.',
+  (snap) => snap.tasks.some((x) => x.id === t.id && x.archived),
+  btn);
+
+const restoreTask = (t, btn) => sendAndWait('qg-update',
+  { pageId: t.id, archived: 'false' },
+  `« ${t.title} » restaurée.`,
+  'Pas de confirmation après 3 min. Détail dans update-log.txt du dépôt data.',
+  (snap) => snap.tasks.some((x) => x.id === t.id && !x.archived),
+  btn);
+
+// Formulaire d'ajout / modification, réutilise la modale existante.
+function openFormModal(mode, t) {
+  const box = $('#modal-box');
+  const isEdit = mode === 'edit';
+  const v = isEdit ? t : { title: '', due: '', priority: 'Normale', status: 'À traiter', owner: 'Ti Tar' };
+  const opt = (list, cur) => list.map((o) => `<option value="${esc(o)}"${o === cur ? ' selected' : ''}>${esc(o)}</option>`).join('');
+  box.innerHTML = `
+    <button class="close" aria-label="Fermer">✕</button>
+    <h3>${isEdit ? 'Modifier la tâche' : 'Nouvelle tâche'}</h3>
+    <label for="fm-title">Titre</label>
+    <input id="fm-title" type="text" maxlength="200" value="${esc(v.title)}" placeholder="Ex. Renouveler le passeport">
+    <label for="fm-due">Échéance (optionnel)</label>
+    <input id="fm-due" type="date" value="${esc(v.due || '')}">
+    <label for="fm-priority">Priorité</label>
+    <select id="fm-priority">${opt(FORM_PRIORITIES, v.priority)}</select>
+    <label for="fm-status">Statut</label>
+    <select id="fm-status">${opt(FORM_STATUSES, v.status)}</select>
+    ${isEdit ? '' : `
+      <label for="fm-owner">Pilote</label>
+      <select id="fm-owner">${opt(FORM_OWNERS, v.owner)}</select>`}
+    <div class="card-actions">
+      <button class="btn-validate" id="fm-save">${isEdit ? 'Enregistrer' : 'Ajouter'}</button>
+    </div>`;
+  $('#modal').hidden = false;
+  box.querySelector('.close').addEventListener('click', () => { $('#modal').hidden = true; });
+  box.querySelector('#fm-save').addEventListener('click', (e) => {
+    const b = e.currentTarget;
+    const f = {
+      title: $('#fm-title').value.trim(),
+      due: $('#fm-due').value,
+      priority: $('#fm-priority').value,
+      status: $('#fm-status').value,
+      owner: isEdit ? t.owner : $('#fm-owner').value
+    };
+    if (!f.title) { showToast('Le titre est obligatoire.', true); return; }
+    if (isEdit) editTask(t, f, b);
+    else addTask(f, b);
+  });
+}
+
 const validate = (t, btn, text = '', answerDate = '') => writeAndWait(t, 'qg-validate', btn, 'Validation', (x) => x.status === 'Validé',
   'Pas de confirmation après 3 min. Cause la plus fréquente : statut Notion différent de « À valider Ti Tar » (refus sans écriture). Détail dans validate-log.txt du dépôt data.',
   answerPayload(text, answerDate));
@@ -428,6 +555,8 @@ $('#filter-status').addEventListener('change', (e) => { state.status = e.target.
 $('#filter-priority').addEventListener('change', (e) => { state.priority = e.target.value; renderTasks(); });
 
 // Export CSV des tâches filtrées : BOM UTF-8 pour Excel FR, une tâche = une ligne.
+$('#btn-add').addEventListener('click', () => openFormModal('add'));
+
 $('#btn-export').addEventListener('click', () => {
   const rows = filterTasks(tasks(), { q: state.q, status: state.status, priority: state.priority });
   if (!rows.length) { showToast('Rien à exporter avec ces filtres.', true); return; }
