@@ -23,8 +23,12 @@ Vue mobile sur un registre de tâches Notion, avec actions en un clic qui écriv
 ## Traiter ses tâches (le plus simple possible)
 
 - **File / Moi — décision en file** : zone de texte facultative (ta réponse, ajoutée à la fiche Notion) + calendrier pour reporter. Trois boutons : **Valider** (→ Validé, case cochée), **Ne pas valider** (→ Rejeté), **Reporter à plus tard** (échéance déplacée, la décision reste en file).
+- **Réponses structurées** : quand « Réponse attendue » mentionne une date, la modale propose un champ date ; le texte part dans la propriété « Réponse Ti Tar QG », la date dans « Date renseignée QG ». Les deux sont pré-remplis depuis la dernière réponse enregistrée.
+- **Reportées à plus tard** : les décisions reportées (case « Reportée QG ») s'affichent à part en bas de l'onglet File, avec un bouton **Remettre dans la file**.
 - **Tâche ouverte** : **Terminer** (→ Terminé, avec réponse facultative).
 - **Erreur de clic ?** Onglet **Terminées** : toutes les fiches closes (Terminé, Validé, Rejeté) avec bouton **Annuler** qui rouvre la fiche (retour au statut précédent mémorisé dans la trace, sinon retour en file pour les décisions).
+- **Résumé** : barre de répartition par statut + charge ouverte par pilote. La recherche de l'onglet Tâches atteint aussi la suite et l'action attendue.
+- **Version Claude** : la variante « QG Pilote Direct » de Claude est conservée dans `reference/claude/` (lecture seule, fonctionne uniquement dans les artifacts Claude). Les idées utiles ont été reprises ici ; voir `reference/claude/INTEGRATION.md`.
 
 Chaque action refuse sans écriture si le statut Notion a changé entre-temps : rien n'est écrasé en aveugle.
 
@@ -55,5 +59,6 @@ Tout changement passe par une branche `vibe/*` → PR → CI verte → merge. Le
 
 ## Changelog
 
+- 16/11/2026 (v2.4) : réponses structurées (texte → « Réponse Ti Tar QG », date → « Date renseignée QG », pré-remplies), section « Reportées à plus tard » + bouton Remettre dans la file, une fiche close ne reste jamais reportée, résumé enrichi (répartition par statut, charge par pilote), recherche étendue à la suite et à l'action attendue, version Claude archivée dans `reference/claude/`.
 - 16/11/2026 (v2.2) : boutons Ne pas valider / Reporter à plus tard (calendrier), zone de texte pour répondre, bouton Annuler + onglet Terminées, statuts Validé/Rejeté distincts de Terminé, onglet Moi (décisions, feu vert IA, tâches bloquantes avec temps estimé), bouton Terminer.
 - 16/11/2026 : correctif bouton ⟳ (déclenche vraiment `qg-sync`, avant il ne faisait que relire le cache), échappement systématique des dates, liens `source` filtrés par schéma, message d'échec de validation explicite (refus si statut ≠ « À valider Ti Tar »).

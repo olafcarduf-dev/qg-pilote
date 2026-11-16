@@ -35,7 +35,7 @@ export function filterTasks(tasks, f = {}) {
     if (f.status && t.status !== f.status) return false;
     if (f.owner && t.owner !== f.owner) return false;
     if (f.priority && t.priority !== f.priority) return false;
-    if (q && !`${t.title} ${t.owner} ${t.kind}`.toLowerCase().includes(q)) return false;
+    if (q && !`${t.title} ${t.owner} ${t.kind} ${t.note ?? ''} ${t.expected ?? ''}`.toLowerCase().includes(q)) return false;
     return true;
   }));
 }
@@ -66,7 +66,7 @@ export function summary(tasks) {
 }
 
 export function nextAction(tasks) {
-  return sortTasks(tasks.filter(isQueued))[0] ?? null;
+  return sortTasks(tasks.filter((t) => isQueued(t) && !t.postponed))[0] ?? null;
 }
 
 export function formatDue(due) {
@@ -107,14 +107,20 @@ export async function requestFreshSnapshot({ dispatch, fetchSnapshot, sleep, pol
 // ---- Onglet « Moi » : qui doit faire quoi ----
 export const AI_PILOTS = ['Vibe', 'ChatGPT', 'Claude', 'Python'];
 
-// Décisions qui attendent Ti Tar (en file, pas pilotées par une IA).
+// Décisions qui attendent Ti Tar (en file, pas pilotées par une IA). Les reportées
+// sont exclues : elles s'affichent dans la section « Reportées » de l'onglet File.
 export function myDecisions(tasks) {
-  return tasks.filter((t) => t.status === QUEUED && !AI_PILOTS.includes(t.owner));
+  return tasks.filter((t) => t.status === QUEUED && !AI_PILOTS.includes(t.owner) && !t.postponed);
 }
 
 // Tâches qu'une IA peut faire mais qui attendent le feu vert de Ti Tar.
 export function awaitingGreenLight(tasks) {
-  return tasks.filter((t) => t.status === QUEUED && AI_PILOTS.includes(t.owner));
+  return tasks.filter((t) => t.status === QUEUED && AI_PILOTS.includes(t.owner) && !t.postponed);
+}
+
+// Décisions mises de côté par « Reporter » : toujours en file, case « Reportée QG » cochée.
+export function postponedDecisions(tasks) {
+  return sortTasks(tasks.filter((t) => t.status === QUEUED && t.postponed));
 }
 
 // Tâches que Ti Tar seul peut faire : pilotées par lui ou « bloque la suite », hors file, non closes.
@@ -127,11 +133,14 @@ export function onYou(tasks) {
 export const totalMinutes = (tasks) => tasks.reduce((sum, t) => sum + (typeof t.timeMin === 'number' ? t.timeMin : 0), 0);
 
 // ---- Quels boutons afficher selon le statut ----
-// La file décide (Valider / Ne pas valider / Reporter), les closes s'annulent, le reste se termine.
+// La file décide (Valider / Ne pas valider / Reporter), les reportées se remettent en file,
+// les closes s'annulent, le reste se termine.
 export function actionsFor(t) {
-  if (t.status === QUEUED) return { validate: true, reject: true, postpone: true, finish: false, undo: false };
-  if (isClosed(t)) return { validate: false, reject: false, postpone: false, finish: false, undo: true };
-  return { validate: false, reject: false, postpone: false, finish: true, undo: false };
+  if (t.status === QUEUED) {
+    return { validate: true, reject: true, postpone: true, unpostpone: !!t.postponed, finish: false, undo: false };
+  }
+  if (isClosed(t)) return { validate: false, reject: false, postpone: false, unpostpone: false, finish: false, undo: true };
+  return { validate: false, reject: false, postpone: false, unpostpone: false, finish: true, undo: false };
 }
 
 // Tâches closes, groupables : Terminé d'abord, puis Validé, puis Rejeté.
@@ -142,4 +151,17 @@ export function closedTasks(tasks) {
     String(b.due ?? '').localeCompare(String(a.due ?? '')) ||
     a.title.localeCompare(b.title)
   );
+}
+
+// Charge ouverte par pilote : ouvertes (hors file et closes), dont décisions en file et Haute priorité.
+export function ownerStats(tasks) {
+  const by = {};
+  for (const t of tasks) {
+    if (t.status === QUEUED || isClosed(t)) continue;
+    const o = by[t.owner] ?? (by[t.owner] = { owner: t.owner, open: 0, high: 0, minutes: 0 });
+    o.open++;
+    if (t.priority === 'Haute') o.high++;
+    if (typeof t.timeMin === 'number') o.minutes += t.timeMin;
+  }
+  return Object.values(by).sort((a, b) => b.open - a.open || a.owner.localeCompare(b.owner));
 }

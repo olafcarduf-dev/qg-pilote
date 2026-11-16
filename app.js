@@ -1,5 +1,5 @@
 // QG Pilote v2 — couche DOM + API GitHub. La logique métier vit dans core.js (testé sous Node).
-import { QUEUED, filterTasks, groupByPriority, summary, nextAction, formatDue, isLate, isSafeUrl, isClosed, sortTasks, requestFreshSnapshot, myDecisions, awaitingGreenLight, onYou, totalMinutes, closedTasks, actionsFor } from './core.js';
+import { QUEUED, filterTasks, groupByPriority, summary, nextAction, formatDue, isLate, isSafeUrl, isClosed, sortTasks, requestFreshSnapshot, myDecisions, awaitingGreenLight, onYou, totalMinutes, closedTasks, postponedDecisions, ownerStats, actionsFor } from './core.js';
 
 const DATA_REPO = 'olafcarduf-dev/qg-pilote-data';
 const API = 'https://api.github.com';
@@ -21,6 +21,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const fmtSync = (iso) => (iso ? new Date(iso).toLocaleString('fr-FR') : 'snapshot vide');
 const cleanText = () => ($('#modal-text')?.value || '').trim().slice(0, TEXT_MAX);
+const cleanAnswerDate = () => $('#modal-answer-date')?.value || '';
 
 function showToast(msg, isErr = false) {
   const el = $('#toast');
@@ -71,6 +72,7 @@ async function dispatch(eventType, payload = {}) {
 // ---- Rendu ----
 function badges(t) {
   const parts = [];
+  if (t.postponed && t.status === QUEUED) parts.push('<span class="badge reportee">reportée</span>');
   if (typeof t.timeMin === 'number') parts.push(`<span class="badge time">≈ ${esc(t.timeMin)} min</span>`);
   if (t.blocking) parts.push('<span class="badge block">bloque la suite</span>');
   return parts.length ? `<div class="badges">${parts.join('')}</div>` : '';
@@ -92,6 +94,7 @@ function card(t, opts = {}) {
         <button class="btn-reject" title="Ne pas valider">Refuser</button>
         <button class="btn-postpone" title="Reporter à plus tard">Reporter</button>
       </div>` : ''}
+    ${acts.unpostpone ? '<button class="btn-unpostpone">Remettre dans la file</button>' : ''}
     ${acts.finish ? '<button class="btn-finish">Terminer</button>' : ''}
     ${acts.undo ? '<button class="btn-undo">Annuler</button>' : ''}`;
   el.addEventListener('click', (e) => { if (!e.target.closest('button')) openModal(t.id); });
@@ -102,6 +105,7 @@ function card(t, opts = {}) {
   wire('.btn-validate', (t2, b) => validate(t2, b));
   wire('.btn-reject', (t2, b) => reject(t2, b));
   wire('.btn-postpone', () => openModal(t.id, 'postpone'));
+  wire('.btn-unpostpone', (t2, b) => unpostpone(t2, b));
   wire('.btn-finish', (t2, b) => finish(t2, b));
   wire('.btn-undo', (t2, b) => undo(t2, b));
   return el;
@@ -117,7 +121,7 @@ function renderFile() {
     el.append(p);
     return;
   }
-  const queued = filterTasks(tasks(), { status: QUEUED });
+  const queued = filterTasks(tasks(), { status: QUEUED }).filter((t) => !t.postponed);
   const next = nextAction(tasks());
   if (next) el.append(card(next, { next }));
   const rest = queued.filter((t) => t !== next);
@@ -127,6 +131,14 @@ function renderFile() {
     p.className = 'empty';
     p.textContent = 'Rien à valider. File vide.';
     el.append(p);
+  }
+  const later = postponedDecisions(tasks());
+  if (later.length) {
+    const head = document.createElement('div');
+    head.className = 'group-title';
+    head.innerHTML = `<h2>◈ Reportées à plus tard</h2><span>${later.length}</span>`;
+    el.append(head);
+    for (const t of later) el.append(card(t));
   }
 }
 
@@ -221,6 +233,28 @@ function renderSummary() {
     <div class="progress"><div style="width:${s.pct}%"></div></div>
     <div class="meta">${s.pct}% terminé · sync ${esc(fmtSync(state.snapshot.generated_at))}</div>`;
   el.append(head);
+  // Répartition par statut : une seule barre segmentée, chaque segment proportionnel.
+  const todoCount = Math.max(0, s.total - s.done - s.approved - s.rejected - s.inProgress - s.queued - s.blocked);
+  const slug = (name) => name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z]+/g, '-');
+  const dist = [['Terminé', s.done], ['Validé', s.approved], ['Rejeté', s.rejected], ['En cours', s.inProgress], ['En attente de validation', s.queued], ['Bloqué', s.blocked], ['À traiter', todoCount]].filter(([, n]) => n > 0);
+  if (dist.length) {
+    const seg = document.createElement('article');
+    seg.className = 'card';
+    const bar = dist.map(([name, n]) => `<div class="seg seg-${slug(name)}" style="width:${(100 * n / s.total).toFixed(2)}%" title="${esc(name)} : ${n}"></div>`).join('');
+    const legend = dist.map(([name, n]) => `<span class="pill">${esc(name)} ${n}</span>`).join('');
+    seg.innerHTML = `<h3>Répartition par statut</h3><div class="dist">${bar}</div><div class="badges">${legend}</div>`;
+    el.append(seg);
+  }
+  // Charge ouverte par pilote : qui porte quoi, hors file et fiches closes.
+  const owners = ownerStats(tasks());
+  if (owners.length) {
+    const oc = document.createElement('article');
+    oc.className = 'card';
+    const rows = owners.map((o) => `<tr><td>${esc(o.owner)}</td><td class="n">${o.open}</td><td class="n">${o.high}</td><td class="n">${o.minutes || ''}</td></tr>`).join('');
+    oc.innerHTML = `<h3>Charge ouverte par pilote</h3>
+      <table class="stats"><thead><tr><th>Pilote</th><th class="n">Ouvertes</th><th class="n">Haute</th><th class="n">Min</th></tr></thead><tbody>${rows}</tbody></table>`;
+    el.append(oc);
+  }
   const groups = groupByPriority(tasks());
   for (const [p, list] of Object.entries(groups)) {
     if (!list.length) continue;
@@ -249,6 +283,8 @@ function openModal(id, focus) {
   const acts = actionsFor(t);
   const box = $('#modal-box');
   const needAnswer = acts.validate || acts.reject || acts.finish || acts.postpone;
+  // « Réponse attendue QG » mentionne une date → champ date dédié, écrit dans « Date renseignée QG ».
+  const needAnswerDate = needAnswer && /date/i.test(t.answerKind || '');
   box.innerHTML = `
     <button class="close" aria-label="Fermer">✕</button>
     <div class="card-top"><span class="prio ${esc(t.priority.toLowerCase())}">${esc(t.priority)}</span><span class="kind">${esc(t.kind)}</span></div>
@@ -260,25 +296,33 @@ function openModal(id, focus) {
     ${isSafeUrl(t.source) ? `<a href="${esc(t.source)}" target="_blank" rel="noopener">Ouvrir la source ↗</a>` : ''}
     ${needAnswer && t.answerKind ? `<div class="muted">Réponse attendue : ${esc(t.answerKind.toLowerCase())}</div>` : ''}
     ${needAnswer ? `<textarea id="modal-text" rows="3" maxlength="${TEXT_MAX}" placeholder="Ta réponse (facultatif, ajoutée à la fiche Notion)"></textarea>` : ''}
+    ${needAnswerDate ? `<label class="muted" for="modal-answer-date">Date de ta réponse</label><input type="date" id="modal-answer-date">` : ''}
     ${acts.postpone ? `<label class="muted" for="modal-date">Nouvelle échéance</label><input type="date" id="modal-date">` : ''}
     <div class="card-actions">
       ${acts.validate ? '<button class="btn-validate">Valider</button>' : ''}
       ${acts.reject ? '<button class="btn-reject">Ne pas valider</button>' : ''}
       ${acts.postpone ? '<button class="btn-postpone" id="btn-modal-postpone" disabled>Reporter à plus tard</button>' : ''}
+      ${acts.unpostpone ? '<button class="btn-unpostpone">Remettre dans la file</button>' : ''}
       ${acts.finish ? '<button class="btn-finish">Terminer</button>' : ''}
       ${acts.undo ? '<button class="btn-undo">Annuler</button>' : ''}
     </div>`;
   $('#modal').hidden = false;
   box.querySelector('.close').addEventListener('click', () => { $('#modal').hidden = true; });
+  // Pré-remplissage avec la dernière réponse enregistrée dans Notion (propriétés « Réponse Ti Tar QG » / « Date renseignée QG »).
+  const ta = box.querySelector('#modal-text');
+  if (ta) ta.value = t.answerText || '';
+  const ad = box.querySelector('#modal-answer-date');
+  if (ad) ad.value = t.answerDate || '';
 
   const wire = (sel, fn) => {
     const b = box.querySelector(sel);
     if (b) b.addEventListener('click', () => { $('#modal').hidden = true; fn(); });
   };
-  wire('.btn-validate', () => validate(t, box.querySelector('.btn-validate'), cleanText()));
-  wire('.btn-reject', () => reject(t, box.querySelector('.btn-reject'), cleanText()));
-  wire('.btn-finish', () => finish(t, box.querySelector('.btn-finish'), cleanText()));
+  wire('.btn-validate', () => validate(t, box.querySelector('.btn-validate'), cleanText(), cleanAnswerDate()));
+  wire('.btn-reject', () => reject(t, box.querySelector('.btn-reject'), cleanText(), cleanAnswerDate()));
+  wire('.btn-finish', () => finish(t, box.querySelector('.btn-finish'), cleanText(), cleanAnswerDate()));
   wire('.btn-undo', () => undo(t, box.querySelector('.btn-undo')));
+  wire('.btn-unpostpone', () => unpostpone(t, box.querySelector('.btn-unpostpone')));
 
   const btnPostpone = box.querySelector('#btn-modal-postpone');
   const dateInput = box.querySelector('#modal-date');
@@ -325,20 +369,26 @@ async function writeAndWait(t, eventType, btn, label, isDone, failMsg, payload =
   }
 }
 
-const validate = (t, btn, text = '') => writeAndWait(t, 'qg-validate', btn, 'Validation', (x) => x.status === 'Validé',
+// Payload de réponse : texte + date de réponse, envoyés au workflow qui les écrit dans
+// les propriétés « Réponse Ti Tar QG » et « Date renseignée QG » de la fiche Notion.
+const answerPayload = (text, answerDate) => ({ ...(text ? { text } : {}), ...(answerDate ? { answerDate } : {}) });
+
+const validate = (t, btn, text = '', answerDate = '') => writeAndWait(t, 'qg-validate', btn, 'Validation', (x) => x.status === 'Validé',
   'Pas de confirmation après 3 min. Cause la plus fréquente : statut Notion différent de « À valider Ti Tar » (refus sans écriture). Détail dans validate-log.txt du dépôt data.',
-  text ? { text } : {});
-const reject = (t, btn, text = '') => writeAndWait(t, 'qg-reject', btn, 'Rejet', (x) => x.status === 'Rejeté',
+  answerPayload(text, answerDate));
+const reject = (t, btn, text = '', answerDate = '') => writeAndWait(t, 'qg-reject', btn, 'Rejet', (x) => x.status === 'Rejeté',
   'Pas de confirmation après 3 min. Cause la plus fréquente : la décision n\u2019était plus « À valider Ti Tar » (refus sans écriture). Détail dans reject-log.txt du dépôt data.',
-  text ? { text } : {});
+  answerPayload(text, answerDate));
 const postpone = (t, due, btn, text = '') => writeAndWait(t, 'qg-postpone', btn, 'Report', (x) => x.status === QUEUED && x.due === due,
   `Pas de confirmation après 3 min. Le report exige une date valide et une décision « À valider Ti Tar » (refus sans écriture). Détail dans postpone-log.txt du dépôt data.`,
   { due, ...(text ? { text } : {}) });
-const finish = (t, btn, text = '') => writeAndWait(t, 'qg-finish', btn, 'Finalisation', (x) => x.status === 'Terminé',
+const finish = (t, btn, text = '', answerDate = '') => writeAndWait(t, 'qg-finish', btn, 'Finalisation', (x) => x.status === 'Terminé',
   'Pas de confirmation après 3 min. Causes fréquentes : fiche déjà close, ou décision en file (utilise « Valider »). Refus sans écriture. Détail dans finish-log.txt du dépôt data.',
-  text ? { text } : {});
+  answerPayload(text, answerDate));
 const undo = (t, btn) => writeAndWait(t, 'qg-undo', btn, 'Annulation', (x) => !isClosed(x),
   'Pas de confirmation après 3 min. Annulation possible uniquement sur une fiche close (Terminé, Validé ou Rejeté). Détail dans undo-log.txt du dépôt data.');
+const unpostpone = (t, btn) => writeAndWait(t, 'qg-unpostpone', btn, 'Remise en file', (x) => x.status === QUEUED && !x.postponed,
+  'Pas de confirmation après 3 min. Remise en file possible uniquement sur une décision reportée « À valider Ti Tar ». Détail dans unpostpone-log.txt du dépôt data.');
 
 // ---- Synchro ----
 // Sans argument : simple relecture du snapshot commité. Avec force=true (bouton ⟳) :
