@@ -12,3 +12,23 @@ dialog{color:var(--text);border:1px solid var(--line);border-radius:var(--radius
 
 .progress-meter{display:inline-grid;grid-template-columns:minmax(48px,1fr) auto;gap:8px;align-items:center;min-width:110px;width:100%;font-size:11px;font-variant-numeric:tabular-nums;color:var(--muted)}.progress-meter progress{width:100%;height:7px;appearance:none;border:0;border-radius:9px;background:#344239;overflow:hidden}.progress-meter progress::-webkit-progress-bar{background:#344239}.progress-meter progress::-webkit-progress-value{background:var(--mint);border-radius:9px}.progress-meter progress::-moz-progress-bar{background:var(--mint);border-radius:9px}.progress-meter .unset{opacity:.55}.person .progress-meter{margin-top:auto}.person{min-height:165px}
 .resume-card{max-width:740px}.resume-card h3,.resume-card .primary{margin-top:16px}.resume-card ol{color:var(--muted);padding-left:22px;line-height:1.6}.resume-card .sources p{overflow-wrap:anywhere}
+
+
+/* Accès clavier, navigation longue et commandes tactiles. */
+main { min-width: 0; }
+.sidebar { overflow-y: auto; }
+:focus-visible { outline: 2px solid var(--mint); outline-offset: 3px; }
+.skip-link { position: fixed; top: 8px; left: 8px; z-index: 50; padding: 12px; background: var(--mint); color: #15220d; transform: translateY(-160%); }
+.skip-link:focus { transform: translateY(0); }
+@media (max-width: 740px) {
+  button, .nav-link, .source { min-height: 44px; }
+  .nav-link { font-size: 13px; }
+  input, select, textarea { font-size: 16px; }
+  .top { flex-wrap: wrap; }
+  .form-grid { grid-template-columns: minmax(0, 1fr); }
+  .filters { width: 100%; }
+  .filters input, .filters select { flex: 1 1 160px; max-width: 100%; }
+}
+@media (max-width: 390px) {
+  .projects, .people { grid-template-columns: minmax(0, 1fr); }
+}

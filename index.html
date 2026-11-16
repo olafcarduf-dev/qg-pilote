@@ -9,16 +9,17 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+  <a class="skip-link" href="#main-content">Aller au contenu</a>
   <header>
     <h1>QG&nbsp;Pilote <span class="ver">v2</span></h1>
     <div class="sync">
-      <span id="sync-state">…</span>
+      <span role="status" id="sync-state">…</span>
       <button id="btn-refresh" title="Rafraîchir" aria-label="Rafraîchir">⟳</button>
     </div>
   </header>
 
-  <nav>
-    <button data-tab="file" class="active">File</button>
+  <nav aria-label="Navigation principale">
+    <button data-tab="file" class="active" aria-current="page">File</button>
     <button data-tab="me">Moi</button>
     <button data-tab="tasks">Tâches</button>
     <button data-tab="closed">Terminées</button>
@@ -26,13 +27,13 @@
     <button data-tab="settings">Réglages</button>
   </nav>
 
-  <main>
+  <main id="main-content" tabindex="-1">
     <section id="tab-file" class="tab active"></section>
     <section id="tab-me" class="tab"></section>
     <section id="tab-tasks" class="tab">
       <div class="toolbar">
-        <input id="search" type="search" placeholder="Rechercher…" autocomplete="off">
-        <select id="filter-status">
+        <input aria-label="Rechercher des tâches" id="search" type="search" placeholder="Rechercher…" autocomplete="off">
+        <select aria-label="Filtrer par statut" id="filter-status">
           <option value="">Tous statuts</option>
           <option>À traiter</option>
           <option>En cours</option>
@@ -42,7 +43,7 @@
           <option>Rejeté</option>
           <option>Bloqué</option>
         </select>
-        <select id="filter-priority">
+        <select aria-label="Filtrer par priorité" id="filter-priority">
           <option value="">Toutes priorités</option>
           <option>Haute</option>
           <option>Normale</option>
@@ -59,7 +60,7 @@
       <article class="card">
         <h3>Connexion GitHub</h3>
         <p>Le site lit et écrit via un <strong>token fine-grained GitHub</strong>, stocké uniquement dans ce navigateur (localStorage), jamais envoyé ailleurs qu'à <code>api.github.com</code>. Portée minimale : dépôt <code>qg-pilote-data</code>, permission <em>Contents&nbsp;: Read and write</em>.</p>
-        <input type="password" id="token-input" placeholder="github_pat_…" autocomplete="off">
+        <input type="password" aria-label="Token GitHub" id="token-input" placeholder="github_pat_…" autocomplete="off">
         <div class="row">
           <button id="btn-save-token">Enregistrer</button>
           <button id="btn-test-token">Tester</button>
@@ -74,9 +75,10 @@
     </section>
   </main>
 
-  <div id="modal" hidden><div id="modal-box"></div></div>
-  <div id="toast" hidden></div>
+  <dialog id="modal" aria-labelledby="modal-title"><div id="modal-box"></div></dialog>
+  <div role="status" id="toast" hidden></div>
 
   <script type="module" src="app.js"></script>
 </body>
 </html>
+
