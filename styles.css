@@ -249,3 +249,9 @@ nav button { flex-basis: 80px; }
   .card-actions { flex-wrap: wrap; }
   .card-actions button { flex-basis: 120px; }
 }
+
+/* Suivi : badges de compteurs dans la nav, échéance relative, réponse enregistrée, confirmation de suppression */
+.nav-count { display: inline-block; min-width: 1.2em; margin-left: 0.35em; padding: 0 0.3em; border-radius: 999px; background: var(--late); color: #04120a; font-size: 0.62rem; font-weight: 800; }
+.due-rel { color: var(--muted); font-weight: 400; }
+.meta.answer { color: var(--accent); }
+.mgmt-actions .btn-archive.armed { background: var(--danger); border-color: var(--danger); color: #fff; }

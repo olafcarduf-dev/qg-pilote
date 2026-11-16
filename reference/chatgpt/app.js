@@ -78,6 +78,7 @@ const htmlDate=value=>{
   const dayOnly=value.length===10;
   return new Intl.DateTimeFormat('fr-FR',{dateStyle:'medium',...(dayOnly?{}:{timeStyle:'short'}),timeZone:'Europe/Paris'}).format(new Date(dayOnly?value+'T12:00:00Z':value));
 };
+const relDue=value=>{ if(!value||value.length<10)return''; const diff=Math.round((Date.parse(value.slice(0,10)+'T12:00:00Z')-Date.parse(parisToday()+'T12:00:00Z'))/86400000); return diff===0?'aujourd’hui':diff===1?'demain':diff===-1?'hier':diff>1?('dans '+diff+' j'):('il y a '+(-diff)+' j'); };
 const link=(url,label)=>'<a class="source" href="'+escapeText(url)+'" '+(url.startsWith('#')?'':'target="_blank" rel="noopener noreferrer"')+'>'+escapeText(label)+' ↗</a>';
 const links=value=>String(value||'').split('\n').filter(Boolean).map(line=>{
   const clean=line.trim();
@@ -129,7 +130,7 @@ function rows(tasks){
     (!filters.late||isLate(task)) && ['project','owner','kind','status','priority'].every(key=>!filters[key]||task[key]===filters[key]) &&
     (!query||[task.title,task.next,task.notes,projectOf(task)?.name].some(value=>value?.toLocaleLowerCase('fr').includes(query)))));
   if(!result.length)return '<p class="empty">Aucune fiche dans cette vue.</p>';
-  return '<div class="table-wrap"><table><thead><tr><th scope="col">Fiche / prochaine action</th><th scope="col">Pilote</th><th scope="col">Statut</th><th scope="col">Priorité</th><th scope="col">Échéance</th><th scope="col">Progression</th></tr></thead><tbody>'+result.map(task=>'<tr><td>'+taskButton(task)+'<small>'+escapeText(projectOf(task)?.name)+' · '+escapeText(task.kind)+'</small><small>'+escapeText(task.next)+'</small></td><td>'+escapeText(task.owner)+'</td><td>'+(task.kind===kinds[0]?badge(task.status):'—')+'</td><td class="'+(task.priority==='Haute'?'high':'')+'">'+escapeText(task.priority)+'</td><td>'+htmlDate(task.due)+(isLate(task)?'<small class="high">En retard</small>':'')+'</td><td>'+(task.kind===kinds[0]?progressBar(taskProgress(task),'Progression de '+task.title):'—')+'</td></tr>').join('')+'</tbody></table></div>';
+  return '<div class="table-wrap"><table><thead><tr><th scope="col">Fiche / prochaine action</th><th scope="col">Pilote</th><th scope="col">Statut</th><th scope="col">Priorité</th><th scope="col">Échéance</th><th scope="col">Progression</th></tr></thead><tbody>'+result.map(task=>'<tr><td>'+taskButton(task)+'<small>'+escapeText(projectOf(task)?.name)+' · '+escapeText(task.kind)+'</small><small>'+escapeText(task.next)+'</small></td><td>'+escapeText(task.owner)+'</td><td>'+(task.kind===kinds[0]?badge(task.status):'—')+'</td><td class="'+(task.priority==='Haute'?'high':'')+'">'+escapeText(task.priority)+'</td><td>'+htmlDate(task.due)+(relDue(task.due)?' <small class="subtle">('+escapeText(relDue(task.due))+')</small>':'')+(isLate(task)?'<small class="high">En retard</small>':'')+'</td><td>'+(task.kind===kinds[0]?progressBar(taskProgress(task),'Progression de '+task.title):'—')+'</td></tr>').join('')+'</tbody></table></div>';
 }
 function taskPanel(tasks,title,withFilters=false){
   return '<section class="panel section"><div class="panel-header"><h2>'+title+'</h2>'+(withFilters?'<div class="filters"><input id="query" aria-label="Rechercher une fiche" placeholder="Rechercher…" value="'+escapeText(filters.query)+'">'+[['owner',owners,'Tous les pilotes'],['status',statuses,'Tous les statuts'],['project',state.projects,'Tous les projets'],['kind',kinds,'Tous les types'],['priority',['Haute','Normale','Basse'],'Toutes les priorités']].map(([key,items,label])=>'<select data-filter="'+key+'" aria-label="'+label+'">'+options(items,filters[key],label)+'</select>').join('')+'<label class="check"><input type="checkbox" data-filter="late" '+(filters.late?'checked':'')+'> En retard</label></div>':'')+'</div><div id="tableResults">'+rows(tasks)+'</div></section>';
@@ -159,10 +160,11 @@ function resumeView(tasks){
 }
 function render(){
   if(!state)return;
+  const lateCount=state.tasks.filter(isLate).length;
   const activePage=pages.find(page=>page[0]===current);
   const project=current.startsWith('project/')?state.projects.find(p=>p.id===current.slice(8)):null;
   byId('trail').textContent='Espace de travail / '+(activePage?.[2]??project?.name??'Projet');
-  byId('nav').innerHTML=[...pages.slice(0,nav.length),null,...pages.slice(nav.length)].map(page=>page?'<a class="nav-link '+(current===page[0]?'active':'')+'" href="#'+page[0]+'" '+(current===page[0]?'aria-current="page"':'')+'><span class="nav-icon" aria-hidden="true">'+page[1]+'</span>'+page[2]+(page[0]==='queue'&&pending().length?' · '+pending().length:'')+'</a>':'<div class="nav-label">Domaines</div>').join('');
+  byId('nav').innerHTML=[...pages.slice(0,nav.length),null,...pages.slice(nav.length)].map(page=>page?'<a class="nav-link '+(current===page[0]?'active':'')+'" href="#'+page[0]+'" '+(current===page[0]?'aria-current="page"':'')+'><span class="nav-icon" aria-hidden="true">'+page[1]+'</span>'+page[2]+(page[0]==='queue'&&pending().length?' · '+pending().length:'')+(page[0]==='tasks'&&lateCount?' · '+lateCount+' en retard':'')+'</a>':'<div class="nav-label">Domaines</div>').join('');
   const scoped=taskScope();
   let body;
   if(current==='overview'){
@@ -180,7 +182,7 @@ function render(){
       +taskPanel(scoped,'Fiches par pilote',true);
   }else if(current==='queue'){
     body=hero('Validation','File de validation','Relisez le contenu et la portée avant d’autoriser une action publique ou irréversible.')
-      +'<div class="queue">'+(pending().map(task=>'<article class="panel">'+badge(task.status)+'<h3>'+taskButton(task)+'</h3><p>'+escapeText(task.owner)+' · '+escapeText(projectOf(task)?.name)+'</p><p>'+escapeText(task.next)+'</p><p>'+escapeText(task.deliverables)+'</p><div class="sources">'+links(task.sources)+'</div><footer>'+(task.gate?'<button class="primary" data-action="approve" data-id="'+escapeText(task.id)+'">Consigner l’autorisation</button><button data-action="return" data-id="'+escapeText(task.id)+'">Demander une révision</button>':'<button data-action="editTask" data-id="'+escapeText(task.id)+'">Ouvrir la fiche</button>')+'</footer></article>').join('')||'<div class="panel"><h2>Aucune demande en attente</h2><p>Choisissez « En attente de validation » dans une fiche pour l’ajouter à cette file.</p></div>')+'</div>';
+      +'<div class="queue">'+(pending().map(task=>'<article class="panel">'+badge(task.status)+'<h3>'+taskButton(task)+'</h3><p>'+escapeText(task.owner)+' · '+escapeText(projectOf(task)?.name)+'</p><p>'+escapeText(task.next)+'</p>'+(task.due?'<p class="subtle">Échéance : '+htmlDate(task.due)+(relDue(task.due)?' ('+escapeText(relDue(task.due))+')':'')+(isLate(task)?' · <span class="high">en retard</span>':'')+'</p>':'')+'<p>'+escapeText(task.deliverables)+'</p><div class="sources">'+links(task.sources)+'</div><footer>'+(task.gate?'<button class="primary" data-action="approve" data-id="'+escapeText(task.id)+'">Consigner l’autorisation</button><button data-action="return" data-id="'+escapeText(task.id)+'">Demander une révision</button>':'<button data-action="editTask" data-id="'+escapeText(task.id)+'">Ouvrir la fiche</button>')+'</footer></article>').join('')||'<div class="panel"><h2>Aucune demande en attente</h2><p>Choisissez « En attente de validation » dans une fiche pour l’ajouter à cette file.</p></div>')+'</div>';
   }else if(current==='history'){
     const decisions=state.tasks.filter(task=>task.kind==='Décision');
     body=hero('Traçabilité','Historique','Consultez les décisions et l’historique des modifications du Site.')

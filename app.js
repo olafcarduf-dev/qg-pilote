@@ -1,5 +1,5 @@
 // QG Pilote v2 — couche DOM + API GitHub. La logique métier vit dans core.js (testé sous Node).
-import { QUEUED, filterTasks, groupByPriority, summary, nextAction, formatDue, isLate, isSafeUrl, isClosed, isArchived, archivedTasks, sortTasks, requestFreshSnapshot, myDecisions, awaitingGreenLight, onYou, totalMinutes, closedTasks, postponedDecisions, ownerStats, actionsFor, toCsv } from './core.js';
+import { QUEUED, filterTasks, groupByPriority, summary, nextAction, formatDue, relativeDue, isLate, isSafeUrl, isClosed, isArchived, archivedTasks, sortTasks, requestFreshSnapshot, myDecisions, awaitingGreenLight, onYou, totalMinutes, closedTasks, postponedDecisions, ownerStats, actionsFor, toCsv, queueCount, myCount, closedCount } from './core.js';
 
 const DATA_REPO = 'olafcarduf-dev/qg-pilote-data';
 const API = 'https://api.github.com';
@@ -11,6 +11,8 @@ const TEXT_MAX = 200;
 
 const $ = (s) => document.querySelector(s);
 const state = { snapshot: readCache(), tab: 'file', q: '', status: '', priority: '' };
+let busy = false; // une écriture (dispatch + attente du snapshot) est en cours
+let modalOpener = null; // élément qui avait le focus avant l'ouverture de la modale
 
 function readCache() {
   try { return JSON.parse(localStorage.getItem(SNAP_KEY)) || null; } catch { return null; }
@@ -85,8 +87,9 @@ function card(t, opts = {}) {
   el.innerHTML = `
     <div class="card-top"><span class="prio ${esc(t.priority.toLowerCase())}">${esc(t.priority)}</span><span class="kind">${esc(t.kind)}</span></div>
     <h3 id="modal-title">${esc(t.title)}</h3>
-    <div class="meta"><span class="status">${esc(t.status)}</span> · ${esc(t.owner)}${t.due ? ` · <span class="due${isLate(t) ? ' late' : ''}">${esc(formatDue(t.due))}</span>` : ''}</div>
+    <div class="meta"><span class="status">${esc(t.status)}</span> · ${esc(t.owner)}${t.due ? ` · <span class="due${isLate(t) ? ' late' : ''}">${esc(formatDue(t.due))}${relativeDue(t.due) ? ` <span class="due-rel">(${esc(relativeDue(t.due))})</span>` : ''}</span>` : ''}</div>
     ${t.expected ? `<div class="expected">→ ${esc(t.expected)}</div>` : ''}
+    ${(t.answerText || t.answerDate) ? `<div class="meta answer">Réponse Ti Tar : ${esc([t.answerText, t.answerDate ? formatDue(t.answerDate) : ''].filter(Boolean).join(' · '))}</div>` : ''}
     ${badges(t)}
     ${acts.validate ? `
       <div class="card-actions">
@@ -115,7 +118,16 @@ function card(t, opts = {}) {
   wire('.btn-finish', (t2, b) => finish(t2, b));
   wire('.btn-undo', (t2, b) => undo(t2, b));
   wire('.btn-edit', () => openFormModal('edit', t));
-  wire('.btn-archive', (t2, b) => archiveTask(t2, b));
+  wire('.btn-archive', (t2, b) => {
+    if (!b.dataset.armed) {
+      b.dataset.armed = '1';
+      b.textContent = 'Confirmer ?';
+      b.classList.add('armed');
+      setTimeout(() => { if (b.isConnected) { delete b.dataset.armed; b.textContent = 'Supprimer'; b.classList.remove('armed'); } }, 3000);
+      return;
+    }
+    archiveTask(t2, b);
+  });
   wire('.btn-restore', (t2, b) => restoreTask(t2, b));
   return el;
 }
@@ -132,6 +144,12 @@ function renderFile() {
   }
   const queued = filterTasks(tasks(), { status: QUEUED }).filter((t) => !t.postponed);
   const next = nextAction(tasks());
+  if (queued.length) {
+    const head = document.createElement('div');
+    head.className = 'group-title';
+    head.innerHTML = `<h2>◆ À valider</h2><span>${queued.length} · V = valider · Entrée = ouvrir · P = reporter</span>`;
+    el.append(head);
+  }
   if (next) el.append(card(next, { next }));
   const rest = queued.filter((t) => t !== next);
   for (const t of rest) el.append(card(t));
@@ -288,7 +306,15 @@ function renderSummary() {
   }
 }
 
+function renderNavBadges() {
+  const set = (id, n) => { const el = document.getElementById(id); if (el) { el.hidden = !n; el.textContent = n; } };
+  set('nav-count-file', queueCount(tasks()));
+  set('nav-count-me', myCount(tasks()));
+  set('nav-count-closed', closedCount(tasks()));
+}
+
 function render() {
+  renderNavBadges();
   renderFile();
   renderMoi();
   renderClosed();
@@ -297,11 +323,17 @@ function render() {
 }
 
 // ---- Modale de décision ----
+function closeModal() {
+  $('#modal').hidden = true;
+  if (modalOpener && modalOpener.isConnected) modalOpener.focus();
+  modalOpener = null;
+}
 // Pour une décision en file : zone de texte (réponse facultative), calendrier (report), 3 boutons.
 // Pour une tâche ouverte : Terminer. Pour une fiche close : Annuler.
 function openModal(id, focus) {
   const t = tasks().find((x) => x.id === id);
   if (!t) return;
+  modalOpener = document.activeElement;
   const acts = actionsFor(t);
   const box = $('#modal-box');
   const needAnswer = acts.validate || acts.reject || acts.finish || acts.postpone;
@@ -328,8 +360,8 @@ function openModal(id, focus) {
       ${acts.finish ? '<button class="btn-finish">Terminer</button>' : ''}
       ${acts.undo ? '<button class="btn-undo">Annuler</button>' : ''}
     </div>`;
-  if (!$('#modal').open) $('#modal').showModal();
-  box.querySelector('.close').addEventListener('click', () => { $('#modal').close(); });
+  $('#modal').hidden = false;
+  box.querySelector('.close').addEventListener('click', () => { closeModal(); });
   // Pré-remplissage avec la dernière réponse enregistrée dans Notion (propriétés « Réponse Ti Tar QG » / « Date renseignée QG »).
   const ta = box.querySelector('#modal-text');
   if (ta) ta.value = t.answerText || '';
@@ -338,7 +370,7 @@ function openModal(id, focus) {
 
   const wire = (sel, fn) => {
     const b = box.querySelector(sel);
-    if (b) b.addEventListener('click', () => { $('#modal').close(); fn(); });
+    if (b) b.addEventListener('click', () => { closeModal(); fn(); });
   };
   wire('.btn-validate', () => validate(t, box.querySelector('.btn-validate'), cleanText(), cleanAnswerDate()));
   wire('.btn-reject', () => reject(t, box.querySelector('.btn-reject'), cleanText(), cleanAnswerDate()));
@@ -352,20 +384,25 @@ function openModal(id, focus) {
     dateInput.addEventListener('change', () => { btnPostpone.disabled = !dateInput.value; });
     btnPostpone.addEventListener('click', () => {
       if (!dateInput.value) { showToast('Choisis d\u2019abord une nouvelle échéance.', true); return; }
-      $('#modal').close();
+      closeModal();
       postpone(t, dateInput.value, btnPostpone, cleanText());
     });
   }
   if (focus === 'postpone' && dateInput) dateInput.focus();
+  else {
+    const f = box.querySelector('#modal-text') || box.querySelector('.card-actions button');
+    if (f) f.focus();
+  }
 }
 
 $('#modal').addEventListener('click', (e) => {
-  if (e.target.id === 'modal') $('#modal').close();
+  if (e.target.id === 'modal') closeModal();
 });
 
 // ---- Écriture générique : dispatch → Action GitHub → Notion → snapshot frais ----
 async function writeAndWait(t, eventType, btn, label, isDone, failMsg, payload = {}) {
   if (!token()) { switchTab('settings'); showToast('Ajoute ton token dans Réglages.', true); return; }
+  busy = true;
   btn.disabled = true;
   btn.textContent = 'Envoi…';
   try {
@@ -387,6 +424,7 @@ async function writeAndWait(t, eventType, btn, label, isDone, failMsg, payload =
   } catch (e) {
     showToast(`Échec : ${e.message}`, true);
   } finally {
+    busy = false;
     render();
   }
 }
@@ -398,6 +436,7 @@ const answerPayload = (text, answerDate) => ({ ...(text ? { text } : {}), ...(an
 // ---- Écriture sans tâche source (ajout) : dispatch → Action GitHub → Notion → snapshot frais ----
 async function sendAndWait(eventType, payload, okMsg, failMsg, isDoneSnap, btn) {
   if (!token()) { switchTab('settings'); showToast('Ajoute ton token dans Réglages.', true); return; }
+  busy = true;
   const old = btn.textContent;
   btn.disabled = true;
   btn.textContent = 'Envoi…';
@@ -418,6 +457,7 @@ async function sendAndWait(eventType, payload, okMsg, failMsg, isDoneSnap, btn) 
   } catch (e) {
     showToast(`Échec : ${e.message}`, true);
   } finally {
+    busy = false;
     btn.disabled = false;
     btn.textContent = old;
     render();
@@ -463,6 +503,7 @@ const restoreTask = (t, btn) => sendAndWait('qg-update',
 // Formulaire d'ajout / modification, réutilise la modale existante.
 function openFormModal(mode, t) {
   const box = $('#modal-box');
+  modalOpener = document.activeElement;
   const isEdit = mode === 'edit';
   const v = isEdit ? t : { title: '', due: '', priority: 'Normale', status: 'À traiter', owner: 'Ti Tar' };
   const opt = (list, cur) => list.map((o) => `<option value="${esc(o)}"${o === cur ? ' selected' : ''}>${esc(o)}</option>`).join('');
@@ -483,8 +524,8 @@ function openFormModal(mode, t) {
     <div class="card-actions">
       <button class="btn-validate" id="fm-save">${isEdit ? 'Enregistrer' : 'Ajouter'}</button>
     </div>`;
-  if (!$('#modal').open) $('#modal').showModal();
-  box.querySelector('.close').addEventListener('click', () => { $('#modal').close(); });
+  $('#modal').hidden = false;
+  box.querySelector('.close').addEventListener('click', () => { closeModal(); });
   box.querySelector('#fm-save').addEventListener('click', (e) => {
     const b = e.currentTarget;
     const f = {
@@ -498,6 +539,7 @@ function openFormModal(mode, t) {
     if (isEdit) editTask(t, f, b);
     else addTask(f, b);
   });
+  box.querySelector('#fm-title')?.focus();
 }
 
 const validate = (t, btn, text = '', answerDate = '') => writeAndWait(t, 'qg-validate', btn, 'Validation', (x) => x.status === 'Validé',
@@ -557,6 +599,23 @@ $('#btn-refresh').addEventListener('click', () => refresh(true));
 $('#search').addEventListener('input', (e) => { state.q = e.target.value; renderTasks(); });
 $('#filter-status').addEventListener('change', (e) => { state.status = e.target.value; renderTasks(); });
 $('#filter-priority').addEventListener('change', (e) => { state.priority = e.target.value; renderTasks(); });
+
+// Raccourcis clavier pour la prochaine décision en file (actifs hors champ/bouton, modale fermée).
+const ghostBtn = { disabled: false, textContent: '' };
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !$('#modal').hidden) { closeModal(); return; }
+  if (!$('#modal').hidden || busy || e.ctrlKey || e.metaKey || e.altKey) return;
+  const tag = (e.target.tagName || '').toLowerCase();
+  if (['input', 'textarea', 'select', 'button', 'a'].includes(tag) || e.target.isContentEditable) return;
+  const next = nextAction(tasks());
+  if (!next) return;
+  if (e.key === 'v') { e.preventDefault(); validate(next, ghostBtn); }
+  else if (e.key === 'r' || e.key === 'Enter') { e.preventDefault(); openModal(next.id); }
+  else if (e.key === 'p') { e.preventDefault(); openModal(next.id, 'postpone'); }
+});
+
+// Rafraîchissement discret toutes les 60 s : la file reste à jour sans déclencher de synchro Actions.
+setInterval(() => { if (!busy && !document.hidden && $('#modal').hidden) refresh(false); }, 60_000);
 
 // Export CSV des tâches filtrées : BOM UTF-8 pour Excel FR, une tâche = une ligne.
 $('#btn-add').addEventListener('click', () => openFormModal('add'));
