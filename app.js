@@ -258,6 +258,7 @@ function openModal(id, focus) {
     ${badges(t)}
     ${t.note ? `<div class="note">${esc(t.note)}</div>` : ''}
     ${isSafeUrl(t.source) ? `<a href="${esc(t.source)}" target="_blank" rel="noopener">Ouvrir la source ↗</a>` : ''}
+    ${needAnswer && t.answerKind ? `<div class="muted">Réponse attendue : ${esc(t.answerKind.toLowerCase())}</div>` : ''}
     ${needAnswer ? `<textarea id="modal-text" rows="3" maxlength="${TEXT_MAX}" placeholder="Ta réponse (facultatif, ajoutée à la fiche Notion)"></textarea>` : ''}
     ${acts.postpone ? `<label class="muted" for="modal-date">Nouvelle échéance</label><input type="date" id="modal-date">` : ''}
     <div class="card-actions">
