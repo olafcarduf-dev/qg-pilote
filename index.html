@@ -18,10 +18,10 @@
   </header>
 
   <nav>
-    <button data-tab="file" class="active">File</button>
-    <button data-tab="me">Moi</button>
+    <button data-tab="file" class="active">File<span class="nav-count" id="nav-count-file" hidden></span></button>
+    <button data-tab="me">Moi<span class="nav-count" id="nav-count-me" hidden></span></button>
     <button data-tab="tasks">Tâches</button>
-    <button data-tab="closed">Terminées</button>
+    <button data-tab="closed">Terminées<span class="nav-count" id="nav-count-closed" hidden></span></button>
     <button data-tab="summary">Résumé</button>
     <button data-tab="settings">Réglages</button>
   </nav>
@@ -74,8 +74,8 @@
     </section>
   </main>
 
-  <div id="modal" hidden><div id="modal-box"></div></div>
-  <div id="toast" hidden></div>
+  <div id="modal" hidden role="dialog" aria-modal="true" aria-label="Fiche"><div id="modal-box"></div></div>
+  <div id="toast" hidden role="status" aria-live="polite"></div>
 
   <script type="module" src="app.js"></script>
 </body>

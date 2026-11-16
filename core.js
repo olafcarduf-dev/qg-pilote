@@ -75,6 +75,9 @@ export function nextAction(tasks) {
   return sortTasks(tasks.filter((t) => isQueued(t) && !t.postponed && !isArchived(t)))[0] ?? null;
 }
 
+// Compteur de la file actionnable (badge de l'onglet File).
+export const queueCount = (tasks) => tasks.filter((t) => isQueued(t) && !t.postponed && !isArchived(t)).length;
+
 export function formatDue(due) {
   if (!due) return '';
   const [y, m, d] = due.slice(0, 10).split('-');
@@ -84,6 +87,19 @@ export function formatDue(due) {
 
 export function isLate(t, today = new Date().toISOString().slice(0, 10)) {
   return !!t.due && t.due.slice(0, 10) < today && !isClosed(t);
+}
+
+// Échéance relative pour le suivi : « aujourd’hui », « demain », « dans 3 j », « il y a 2 j ».
+export function relativeDue(due, today = new Date().toISOString().slice(0, 10)) {
+  if (!due) return '';
+  const d = due.slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || !/^\d{4}-\d{2}-\d{2}$/.test(today)) return '';
+  const diff = Math.round((Date.parse(d + 'T00:00:00Z') - Date.parse(today + 'T00:00:00Z')) / 86400000);
+  if (diff === 0) return 'aujourd’hui';
+  if (diff === 1) return 'demain';
+  if (diff === -1) return 'hier';
+  if (diff > 1) return `dans ${diff} j`;
+  return `il y a ${-diff} j`;
 }
 
 // Lien sûr : uniquement http(s). Bloque javascript:, data: et cie, même sur une valeur échappée.
@@ -138,6 +154,9 @@ export function onYou(tasks) {
 
 export const totalMinutes = (tasks) => tasks.reduce((sum, t) => sum + (typeof t.timeMin === 'number' ? t.timeMin : 0), 0);
 
+// Compteur de l'onglet « Moi » : décisions à prendre + tâches qui ne peuvent avancer que par Ti Tar.
+export const myCount = (tasks) => myDecisions(tasks).length + onYou(tasks).length;
+
 // ---- Quels boutons afficher selon le statut ----
 // La file décide (Valider / Ne pas valider / Reporter), les reportées se remettent en file,
 // les closes s'annulent, le reste se termine.
@@ -167,6 +186,9 @@ export function closedTasks(tasks) {
 export function archivedTasks(tasks) {
   return sortTasks(tasks.filter(isArchived));
 }
+
+// Compteur de l'onglet « Terminées » : fiches closes + archivées.
+export const closedCount = (tasks) => closedTasks(tasks).length + archivedTasks(tasks).length;
 
 // Charge ouverte par pilote : ouvertes (hors file et closes), dont décisions en file et Haute priorité.
 export function ownerStats(tasks) {

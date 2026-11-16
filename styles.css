@@ -225,3 +225,9 @@ table.stats { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
 table.stats th, table.stats td { text-align: left; padding: 0.3rem 0.4rem; border-bottom: 1px solid var(--line); }
 table.stats th.n, table.stats td.n { text-align: right; font-variant-numeric: tabular-nums; }
 table.stats th { color: var(--muted); font-weight: 600; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; }
+
+/* Suivi : badges de compteurs dans la nav, échéance relative, réponse enregistrée, confirmation de suppression */
+.nav-count { display: inline-block; min-width: 1.2em; margin-left: 0.35em; padding: 0 0.3em; border-radius: 999px; background: var(--late); color: #04120a; font-size: 0.62rem; font-weight: 800; }
+.due-rel { color: var(--muted); font-weight: 400; }
+.meta.answer { color: var(--accent); }
+.mgmt-actions .btn-archive.armed { background: var(--danger); border-color: var(--danger); color: #fff; }

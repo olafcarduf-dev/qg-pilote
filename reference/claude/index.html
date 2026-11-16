@@ -153,6 +153,7 @@ function parisDate(d){ return new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/
 function parisStamp(){ var d=new Date(); var p=parisDate(d).split('-'); var t=new Intl.DateTimeFormat('fr-FR',{timeZone:'Europe/Paris',hour:'2-digit',minute:'2-digit',hour12:false}).format(d).replace(':','h'); return p[2]+'/'+p[1]+'/'+p[0]+' à '+t; }
 function fr(iso){ var p=String(iso||'').slice(0,10).split('-'); return p.length===3?p[2]+'/'+p[1]+'/'+p[0]:''; }
 function ageDays(iso){ if(!/^\d{4}-\d{2}-\d{2}/.test(iso||'')) return null; var a=Date.parse(iso.slice(0,10)+'T00:00:00Z'), b=Date.parse(parisDate()+'T00:00:00Z'); var n=Math.round((b-a)/86400000); return n>=0?n:null; }
+function relLabel(iso){ if(!/^\d{4}-\d{2}-\d{2}/.test(iso||'')) return ''; var n=Math.round((Date.parse(iso.slice(0,10)+'T00:00:00Z')-Date.parse(parisDate()+'T00:00:00Z'))/86400000); return n===0?'aujourd’hui':n===1?'demain':n>1?('dans '+n+' j'):''; }
 
 function payloadOf(res){
   var p=res&&res.payload;
@@ -251,7 +252,7 @@ async function load(){
 
 function card(t){
   var age=CLOSED[t.statut]?null:ageDays(t.date);
-  var meta=t.pilote+(t.date?' · créée le '+fr(t.date):'')+(t.temps&&!CLOSED[t.statut]?' · ~'+t.temps+' min':'')+(age!==null&&age>0?' · ouverte depuis '+age+' j':'');
+  var meta=t.pilote+(t.date?' · créée le '+fr(t.date):'')+(t.temps&&!CLOSED[t.statut]?' · ~'+t.temps+' min':'')+(age!==null&&age>0?' · ouverte depuis '+age+' j':'')+(!CLOSED[t.statut]&&relLabel(t.date)?' · '+relLabel(t.date):'');
   return h('button',{class:'card '+(CLS[t.statut]||'todo'),type:'button',onclick:function(ev){openSheet(t,ev.currentTarget);}},
     h('span',{class:'row'}, t.priorite?h('span',{class:'prio '+t.priorite.toLowerCase(),text:t.priorite}):null,
       h('span',{class:'pill '+(CLS[t.statut]||'todo'),text:t.statut||'Sans statut'}), t.type?h('span',{class:'meta',text:t.type}):null, t.bloque&&!CLOSED[t.statut]?h('span',{class:'pill no',text:'Bloque la suite'}):null),
@@ -333,7 +334,7 @@ function detail(t,message){
   var s=$('sheet'); clear(s);
   head(t).forEach(function(e){s.appendChild(e);});
   if(message) s.appendChild(h('p',{class:'note'+(message.err?' err':''),role:'status'},h('strong',{text:message.title+' '}),message.text));
-  s.appendChild(h('dl',null, h('dt',{text:'Pilote'}),h('dd',{text:t.pilote}), h('dt',{text:'Créée le'}),h('dd',{text:fr(t.date)||'Non renseigné'}),
+  s.appendChild(h('dl',null, h('dt',{text:'Pilote'}),h('dd',{text:t.pilote}), h('dt',{text:'Créée le'}),h('dd',{text:(fr(t.date)||'Non renseigné')+(relLabel(t.date)?' ('+relLabel(t.date)+')':'')}),
     t.temps?h('dt',{text:'Temps estimé'}):null, t.temps?h('dd',{text:t.temps+' min'}):null));
   if(t.action) s.appendChild(h('p',{class:'note'},h('strong',{text:'Action attendue. '}),t.action));
   if(t.suite) s.appendChild(h('div',{class:'suite',text:t.suite}));

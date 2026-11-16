@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { QUEUED, sortTasks, filterTasks, groupByPriority, summary, nextAction, formatDue, isLate, isSafeUrl, isClosed, isArchived, archivedTasks, requestFreshSnapshot, AI_PILOTS, myDecisions, awaitingGreenLight, onYou, totalMinutes, actionsFor, closedTasks, postponedDecisions, ownerStats, csvEscape, toCsv } from '../core.js';
+import { QUEUED, sortTasks, filterTasks, groupByPriority, summary, nextAction, formatDue, relativeDue, isLate, isSafeUrl, isClosed, isArchived, archivedTasks, requestFreshSnapshot, AI_PILOTS, myDecisions, awaitingGreenLight, onYou, totalMinutes, actionsFor, closedTasks, postponedDecisions, ownerStats, csvEscape, toCsv, queueCount, myCount, closedCount } from '../core.js';
 
 let ok = 0;
 const fails = [];
@@ -347,5 +347,47 @@ await atest('toCsv : en-tête + une ligne par tâche, dates en JJ/MM/AAAA, filtr
   assert.ok(lines[2].endsWith('"Relire;"'), 'le point-virgule du contenu est quoté');
   assert.strictEqual(toCsv([]), 'Tâche;Statut;Pilote;Priorité;Type;Échéance;Réponse attendue;Réponse de Ti Tar;Date de réponse;Temps estimé (min);Bloque la suite;Action attendue');
 });
+// ---- Suivi : compteurs de navigation et échéances relatives ----
+await atest('queueCount : file actionnable (non reportée, non archivée)', () => {
+  assert.strictEqual(queueCount([
+    t({ status: QUEUED }),
+    t({ status: QUEUED, postponed: true }),
+    t({ status: QUEUED, archived: true }),
+    t({ status: 'En cours' })
+  ]), 1);
+});
+
+await atest('myCount : décisions à prendre + tâches réservées à Ti Tar (feu vert IA exclu)', () => {
+  assert.strictEqual(myCount([
+    t({ status: QUEUED, owner: 'Ti Tar' }),
+    t({ status: QUEUED, owner: 'Vibe' }),
+    t({ status: 'En cours', owner: 'Ti Tar' }),
+    t({ status: 'Bloqué', owner: 'Vibe', blocking: true }),
+    t({ status: 'Terminé' })
+  ]), 3);
+});
+
+await atest('closedCount : fiches closes + archivées (badge Terminées)', () => {
+  assert.strictEqual(closedCount([
+    t({ status: 'Terminé' }),
+    t({ status: 'Validé' }),
+    t({ status: 'Rejeté', archived: true }),
+    t({ status: QUEUED })
+  ]), 3);
+});
+
+await atest('relativeDue : aujourd’hui, demain, hier, dans N j, il y a N j, dates invalides', () => {
+  const today = '2026-11-16';
+  assert.strictEqual(relativeDue('', today), '');
+  assert.strictEqual(relativeDue(null, today), '');
+  assert.strictEqual(relativeDue('2026-11-16', today), 'aujourd’hui');
+  assert.strictEqual(relativeDue('2026-11-17', today), 'demain');
+  assert.strictEqual(relativeDue('2026-11-15', today), 'hier');
+  assert.strictEqual(relativeDue('2026-11-19', today), 'dans 3 j');
+  assert.strictEqual(relativeDue('2026-11-10', today), 'il y a 6 j');
+  assert.strictEqual(relativeDue('pas-une-date', today), '');
+  assert.strictEqual(relativeDue('2026-11-16T10:00:00Z', today), 'aujourd’hui');
+});
+
 console.log(fails.length ? `\n${fails.length} ÉCHEC(S)` : `\n${ok} test(s) ok, 0 échec(s)`);
 process.exitCode = fails.length ? 1 : 0;
