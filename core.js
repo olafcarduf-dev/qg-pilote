@@ -74,3 +74,14 @@ export function formatDue(due) {
 export function isLate(t, today = new Date().toISOString().slice(0, 10)) {
   return !!t.due && t.due.slice(0, 10) < today && t.status !== 'Terminé';
 }
+
+// Lien sûr : uniquement http(s). Bloque javascript:, data: et cie, même sur une valeur échappée.
+export function isSafeUrl(u) {
+  if (typeof u !== 'string' || !u) return false;
+  try {
+    const p = new URL(u);
+    return p.protocol === 'http:' || p.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}

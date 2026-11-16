@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { QUEUED, sortTasks, filterTasks, groupByPriority, summary, nextAction, formatDue, isLate } from '../core.js';
+import { QUEUED, sortTasks, filterTasks, groupByPriority, summary, nextAction, formatDue, isLate, isSafeUrl } from '../core.js';
 
 let ok = 0;
 const fails = [];
@@ -120,6 +120,17 @@ await atest('isLate : en retard seulement si échéance passée et non terminée
   assert.ok(!isLate(t({ due: '2026-11-15', status: 'Terminé' }), today));
   assert.ok(!isLate(t({ due: '2026-11-17', status: 'En cours' }), today));
   assert.ok(!isLate(t({ due: null, status: 'En cours' }), today));
+});
+
+await atest('isSafeUrl : accepte http/https, refuse tout le reste', async () => {
+  assert.ok(isSafeUrl('https://app.notion.com/p/abc'));
+  assert.ok(isSafeUrl('http://example.com/x?y=1'));
+  assert.ok(!isSafeUrl('javascript:alert(1)'), 'javascript: refusé');
+  assert.ok(!isSafeUrl('data:text/html,<b>'), 'data: refusé');
+  assert.ok(!isSafeUrl('notion://page/abc'), 'schéma natif refusé');
+  assert.ok(!isSafeUrl(''), 'chaîne vide refusée');
+  assert.ok(!isSafeUrl(null), 'null refusé');
+  assert.ok(!isSafeUrl('pas une url'), 'texte libre refusé');
 });
 
 console.log(fails.length ? `\n${fails.length} ÉCHEC(S)` : `\n${ok} test(s) ok, 0 échec(s)`);

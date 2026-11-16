@@ -1,5 +1,5 @@
 // QG Pilote v2 — couche DOM + API GitHub. La logique métier vit dans core.js (testé sous Node).
-import { QUEUED, filterTasks, groupByPriority, summary, nextAction, formatDue, isLate } from './core.js';
+import { QUEUED, filterTasks, groupByPriority, summary, nextAction, formatDue, isLate, isSafeUrl } from './core.js';
 
 const DATA_REPO = 'olafcarduf-dev/qg-pilote-data';
 const API = 'https://api.github.com';
@@ -26,7 +26,7 @@ function showToast(msg, isErr = false) {
   el.className = isErr ? 'err' : '';
   el.hidden = false;
   clearTimeout(showToast._t);
-  showToast._t = setTimeout(() => { el.hidden = true; }, 4000);
+  showToast._t = setTimeout(() => { el.hidden = true; }, 5000);
 }
 
 function setSync(msg, isErr = false) {
@@ -73,7 +73,7 @@ function card(t, opts = {}) {
   el.innerHTML = `
     <div class="card-top"><span class="prio ${esc(t.priority.toLowerCase())}">${esc(t.priority)}</span><span class="kind">${esc(t.kind)}</span></div>
     <h3>${esc(t.title)}</h3>
-    <div class="meta"><span class="status">${esc(t.status)}</span> · ${esc(t.owner)}${t.due ? ` · <span class="due${isLate(t) ? ' late' : ''}">${formatDue(t.due)}</span>` : ''}</div>
+    <div class="meta"><span class="status">${esc(t.status)}</span> · ${esc(t.owner)}${t.due ? ` · <span class="due${isLate(t) ? ' late' : ''}">${esc(formatDue(t.due))}</span>` : ''}</div>
     ${t.status === QUEUED ? '<button class="btn-validate">Valider</button>' : ''}`;
   el.addEventListener('click', (e) => { if (!e.target.closest('button')) openModal(t.id); });
   const btn = el.querySelector('.btn-validate');
@@ -157,9 +157,9 @@ function openModal(id) {
     <button class="close" aria-label="Fermer">✕</button>
     <div class="card-top"><span class="prio ${esc(t.priority.toLowerCase())}">${esc(t.priority)}</span><span class="kind">${esc(t.kind)}</span></div>
     <h3>${esc(t.title)}</h3>
-    <div class="meta"><span class="status">${esc(t.status)}</span> · ${esc(t.owner)}${t.due ? ` · ${formatDue(t.due)}` : ''}</div>
+    <div class="meta"><span class="status">${esc(t.status)}</span> · ${esc(t.owner)}${t.due ? ` · ${esc(formatDue(t.due))}` : ''}</div>
     ${t.note ? `<div class="note">${esc(t.note)}</div>` : ''}
-    ${t.source ? `<a href="${esc(t.source)}" target="_blank" rel="noopener">Ouvrir dans Notion ↗</a>` : ''}
+    ${isSafeUrl(t.source) ? `<a href="${esc(t.source)}" target="_blank" rel="noopener">Ouvrir la source ↗</a>` : ''}
     ${t.status === QUEUED ? '<button class="btn-validate">Valider</button>' : ''}`;
   $('#modal').hidden = false;
   box.querySelector('.close').addEventListener('click', () => { $('#modal').hidden = true; });
@@ -196,7 +196,7 @@ async function validate(t, btn) {
         return;
       }
     }
-    showToast('Pas de confirmation après 3 min : vérifie l\'onglet Actions de qg-pilote-data.', true);
+    showToast('Pas de confirmation après 3 min. Cause la plus fréquente : statut Notion différent de « À valider Ti Tar » (validation refusée sans écriture). Détail dans validate-log.txt du dépôt data.', true);
   } catch (e) {
     showToast(`Échec : ${e.message}`, true);
   } finally {
@@ -205,12 +205,31 @@ async function validate(t, btn) {
 }
 
 // ---- Synchro ----
-async function refresh() {
+// Sans argument : simple relecture du snapshot commité. Avec force=true (bouton ⟳) :
+// déclenche la synchro GitHub Actions (qg-sync) puis attend le nouveau snapshot.
+async function refresh(force = false) {
   const btn = $('#btn-refresh');
   btn.disabled = true;
-  setSync('sync…');
+  setSync(force ? 'sync GitHub Actions…' : 'sync…');
   try {
     if (!token()) { setSync('token manquant', true); switchTab('settings'); return; }
+    if (force) {
+      const before = state.snapshot?.generated_at;
+      await dispatch('qg-sync');
+      const deadline = Date.now() + POLL_MAX_MS;
+      while (Date.now() < deadline) {
+        await sleep(POLL_MS);
+        const snap = await fetchSnapshot();
+        if (snap.generated_at !== before) {
+          setSync(`sync ${fmtSync(snap.generated_at)}`);
+          render();
+          return;
+        }
+      }
+      setSync('sync lente', true);
+      showToast('Synchro pas terminée après 3 min : vérifie l\'onglet Actions de qg-pilote-data.', true);
+      return;
+    }
     const snap = await fetchSnapshot();
     setSync(`sync ${fmtSync(snap.generated_at)}`);
     render();
@@ -232,7 +251,7 @@ function switchTab(tab) {
 for (const b of document.querySelectorAll('nav button')) {
   b.addEventListener('click', () => switchTab(b.dataset.tab));
 }
-$('#btn-refresh').addEventListener('click', refresh);
+$('#btn-refresh').addEventListener('click', () => refresh(true));
 $('#search').addEventListener('input', (e) => { state.q = e.target.value; renderTasks(); });
 $('#filter-status').addEventListener('change', (e) => { state.status = e.target.value; renderTasks(); });
 $('#filter-priority').addEventListener('change', (e) => { state.priority = e.target.value; renderTasks(); });
